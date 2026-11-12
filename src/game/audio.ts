@@ -95,6 +95,17 @@ class SoundEngine {
     this.bassPulse = Math.max(0, this.bassPulse - dt / .28);
     if (this.backgroundSource && this.backgroundBuffer && this.ctx && this.ctx.state === 'running' && this.clockIsAdvancing && this.bassBeats.length) {
       const musicTime = this.ctx.currentTime - this.backgroundStartTime;
+      // A browser source may sleep for minutes or hours. Jump over complete
+      // music loops instead of replaying every missed beat on one frame.
+      const currentLoop = Math.floor(musicTime / this.backgroundBuffer.duration);
+      if (currentLoop > this.bassBeatLoop + 1) {
+        const skippedBeats = this.bassBeats.length - this.nextBassBeat
+          + (currentLoop - this.bassBeatLoop - 1) * this.bassBeats.length;
+        this.bassBeatCount += skippedBeats;
+        this.bassBeatLoop = currentLoop;
+        this.nextBassBeat = 0;
+        this.bassPulse = 1;
+      }
       while (this.bassBeatLoop * this.backgroundBuffer.duration + this.bassBeats[this.nextBassBeat] <= musicTime) {
         this.bassBeatCount++;
         this.bassPulse = 1;

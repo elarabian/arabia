@@ -135,7 +135,7 @@ export const TikTokOverlay: React.FC<TikTokOverlayProps> = ({
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-1.5 leading-tight">
-              <span className="text-xs font-bold text-white tracking-tight">KırbaçAvcısı</span>
+              <span className="text-xs font-bold text-white tracking-tight">Harami</span>
               <span className="px-1.5 py-0.2 bg-rose-600 text-[9px] font-bold text-white rounded-full uppercase animate-pulse">
                 CANLI
               </span>

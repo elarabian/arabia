@@ -17,6 +17,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
   const containerRef = useRef<HTMLDivElement | null>(null);
   const prevMouseRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
   const isMouseDownRef = useRef<boolean>(false);
+  const renderScaleRef = useRef(1);
 
   useEffect(() => {
     soundEngine.setPaused(isPaused);
@@ -30,8 +31,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
     const width = Math.max(1, rect.width);
     const height = Math.max(1, rect.height);
 
-    const outputWidth = OBS_CANVAS_WIDTH;
-    const outputHeight = OBS_CANVAS_HEIGHT;
+    const outputWidth = Math.round(OBS_CANVAS_WIDTH * renderScaleRef.current);
+    const outputHeight = Math.round(OBS_CANVAS_HEIGHT * renderScaleRef.current);
     if (canvasRef.current.width !== outputWidth) canvasRef.current.width = outputWidth;
     if (canvasRef.current.height !== outputHeight) canvasRef.current.height = outputHeight;
     canvasRef.current.style.width = `${width}px`;
@@ -96,43 +97,63 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
 
     let animationFrameId: number;
     let lastTime = performance.now();
-    let pendingSeconds = 0;
+    let lastAdvanceAt = lastTime;
+    let lastStatsUpdate = lastTime;
+    let slowFrames = 0;
+    let resolutionPending = false;
 
     const advance = (time: number) => {
-      const elapsed = Math.max(0, (time - lastTime) / 1000);
+      const elapsed = Math.max(0, Math.min(.1, (time - lastTime) / 1000));
       lastTime = time;
+      lastAdvanceAt = time;
       if (isPaused || !canvasRef.current) {
-        pendingSeconds = 0;
         return;
       }
-
-      pendingSeconds += elapsed;
-      let updates = 0;
-      while (pendingSeconds > 0.0001 && updates < 120) {
-        const dt = Math.min(pendingSeconds, 0.05);
-        engine.update(dt);
-        pendingSeconds -= dt;
-        updates++;
+      if (resolutionPending) {
+        handleResize();
+        resolutionPending = false;
       }
-      if (updates) onStatsUpdate();
+
+      // A suspended or throttled browser source should resume smoothly, without
+      // replaying seconds of simulation on a single animation frame.
+      let remaining = elapsed;
+      while (remaining > 0.0001) {
+        const dt = Math.min(remaining, 0.05);
+        engine.update(dt);
+        remaining -= dt;
+      }
+      if (time - lastStatsUpdate >= 200 || engine.isGameOver) {
+        lastStatsUpdate = time;
+        onStatsUpdate();
+      }
 
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
+        const renderStart = performance.now();
         ctx.clearRect(0, 0, engine.width, engine.height);
         engine.render(ctx, time);
+        const renderCost = performance.now() - renderStart;
+        slowFrames = renderCost > 18 ? slowFrames + 1 : Math.max(0, slowFrames - 2);
+        if (slowFrames >= 18 && renderScaleRef.current > 2 / 3) {
+          renderScaleRef.current = renderScaleRef.current === 1 ? .75 : 2 / 3;
+          slowFrames = 0;
+          resolutionPending = true;
+        }
       }
     };
 
     const loop = (time: number) => {
       animationFrameId = requestAnimationFrame(loop);
-      if (!document.hidden) advance(time);
+      // Embedded LIVE/OBS browsers can report hidden while still being captured.
+      if (time - lastAdvanceAt >= 8) advance(time);
     };
 
-    // Browsers suspend animation frames for hidden tabs. Timers keep the game
-    // advancing, and elapsed time is caught up when a throttled timer resumes.
+    // If a source suspends requestAnimationFrame, keep drawing through a timer.
+    // Avoid double drawing while animation frames are arriving normally.
     const backgroundTimer = window.setInterval(() => {
-      if (document.hidden) advance(performance.now());
-    }, 100);
+      const now = performance.now();
+      if (now - lastAdvanceAt > 15) advance(now);
+    }, 16);
     const resume = () => {
       advance(performance.now());
       if (!document.hidden && !isPaused) soundEngine.setPaused(false);

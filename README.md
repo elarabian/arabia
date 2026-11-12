@@ -1,4 +1,4 @@
-# Kırbaç Avcısı
+# Harami · Kırbaç Avcısı
 
 React/Vite oyunu. TikTok LIVE açıkken yayına yeni katılan her izleyici, üzerinde adı yazan bir zombi olarak görünür. Beğeniler kısa süreli seri kırbaç saldırısını hızlandırır. Gömülen izleyicinin adı RIP taşına yazılır.
 

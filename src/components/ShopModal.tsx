@@ -85,7 +85,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ engine, onClose, onRefresh
                 Karanlık Cephanelik & Demircilik
               </h2>
               <div className="text-xs text-stone-400">
-                Kan Özü ile kırbaçlarınızı ve avcı yeteneklerinizi güçlendirin
+                Kan Özü ile kırbaçlarınızı ve Harami'nin yeteneklerini güçlendirin
               </div>
             </div>
           </div>
@@ -195,7 +195,7 @@ export const ShopModal: React.FC<ShopModalProps> = ({ engine, onClose, onRefresh
           {/* Section 2: Upgrades */}
           <div>
             <h3 className="font-cinzel text-sm font-semibold uppercase tracking-wider text-amber-500 mb-3">
-              Avcı Geliştirmeleri
+              Harami Geliştirmeleri
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Reach */}

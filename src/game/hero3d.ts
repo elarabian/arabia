@@ -16,18 +16,18 @@ export function drawHero3D(ctx:CanvasRenderingContext2D,x:number,y:number,angle:
  const faces:Face[]=[];
  const face=(v:V[],color:V)=>faces.push({v,color});
  function sphere(center:V,r:V,color:V,check=false){
-  const point=(i:number,j:number):V=>{const a=i/16*Math.PI*2,b=j/8*Math.PI;return [center[0]+r[0]*Math.sin(b)*Math.cos(a),center[1]+r[1]*Math.cos(b),center[2]+r[2]*Math.sin(b)*Math.sin(a)];};
-  for(let i=0;i<16;i++)for(let j=0;j<8;j++)face([point(i,j),point(i+1,j),point(i+1,j+1),point(i,j+1)],check&&(i+j)%2===0?RED:color);
+  const point=(i:number,j:number):V=>{const a=i/12*Math.PI*2,b=j/6*Math.PI;return [center[0]+r[0]*Math.sin(b)*Math.cos(a),center[1]+r[1]*Math.cos(b),center[2]+r[2]*Math.sin(b)*Math.sin(a)];};
+  for(let i=0;i<12;i++)for(let j=0;j<6;j++)face([point(i,j),point(i+1,j),point(i+1,j+1),point(i,j+1)],check&&(i+j)%2===0?RED:color);
  }
  function tube(a:V,b:V,r:number,color:V){
   const axis=unit(sub(b,a)),u=unit(cross(axis,Math.abs(axis[1])<.9?[0,1,0]:[1,0,0])),v=cross(axis,u);
-  const point=(p:V,i:number):V=>{const t=i/12*Math.PI*2;return p.map((q,k)=>q+r*(Math.cos(t)*u[k]+Math.sin(t)*v[k])) as V;};
-  for(let i=0;i<12;i++)face([point(a,i),point(a,i+1),point(b,i+1),point(b,i)],color);
+  const point=(p:V,i:number):V=>{const t=i/8*Math.PI*2;return p.map((q,k)=>q+r*(Math.cos(t)*u[k]+Math.sin(t)*v[k])) as V;};
+  for(let i=0;i<8;i++)face([point(a,i),point(a,i+1),point(b,i+1),point(b,i)],color);
  }
  // The robe has a circular cross section and vertical fabric folds, not a flat sprite.
  const rings=[[5,22,12],[35,18,11],[65,16,10],[77,17,10],[81,7,7]];
- for(let j=0;j<rings.length-1;j++)for(let i=0;i<32;i++){
-  const pt=(level:number,n:number):V=>{const [h,rx,rz]=rings[level],a=n/32*Math.PI*2,f=1+.035*Math.cos(a*8);return [Math.cos(a)*rx*f,h,Math.sin(a)*rz*f];};
+ for(let j=0;j<rings.length-1;j++)for(let i=0;i<24;i++){
+  const pt=(level:number,n:number):V=>{const [h,rx,rz]=rings[level],a=n/24*Math.PI*2,f=1+.035*Math.cos(a*8);return [Math.cos(a)*rx*f,h,Math.sin(a)*rz*f];};
   face([pt(j,i),pt(j,i+1),pt(j+1,i+1),pt(j+1,i)],SKY);
  }
  const stride=Math.max(-12,Math.min(12,step));
@@ -51,13 +51,13 @@ export function drawHero3D(ctx:CanvasRenderingContext2D,x:number,y:number,angle:
  tube([-2,96,11],[2,96,11],.8,DARK);
  sphere([0,105,0],[13,7,12],[251,233,225],true);
  // Checker-woven scarf panels have actual depth and folds.
- for(let panel=0;panel<3;panel++)for(let row=0;row<9;row++)for(let col=0;col<8;col++){
-  const pt=(r:number,c:number):V=>{const h=104-r*4,u=(c/8-.5)*32,fold=Math.sin(c*1.7+r*.4)*1.1;
+ for(let panel=0;panel<3;panel++)for(let row=0;row<8;row++)for(let col=0;col<6;col++){
+  const pt=(r:number,c:number):V=>{const h=104-r*4.5,u=(c/6-.5)*32,fold=Math.sin(c*1.7+r*.4)*1.1;
    if(panel===0)return [u*(1+r*.018),h,-11-fold];
    return [(panel===1?-1:1)*(13+r*.65+fold),h,u*.65];};
   face([pt(row,col),pt(row,col+1),pt(row+1,col+1),pt(row+1,col)],(row+col)%2===0?RED:[252,239,230]);
  }
- for(let i=0;i<32;i++){const a=i/32*Math.PI*2,b=(i+1)/32*Math.PI*2;tube([13*Math.cos(a),105,12*Math.sin(a)],[13*Math.cos(b),105,12*Math.sin(b)],1.8,DARK);}
+ for(let i=0;i<24;i++){const a=i/24*Math.PI*2,b=(i+1)/24*Math.PI*2;tube([13*Math.cos(a),105,12*Math.sin(a)],[13*Math.cos(b),105,12*Math.sin(b)],1.8,DARK);}
  // Relaxed left arm, attached in model space.
  const raised=Math.max(0,Math.min(1,handsRaised));
  const leftElbow:V=[-22+2*raised,53+51*raised+runStep*5,2+raised+runStep*12];

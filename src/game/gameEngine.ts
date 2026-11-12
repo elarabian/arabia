@@ -1276,7 +1276,7 @@ export class GameEngine {
 
   private drawLiveChat(ctx: CanvasRenderingContext2D) {
     const chat = this.currentChat ?? (this.heroLine && soundEngine.audioTime < this.heroLine.until
-      ? { name: 'Avcı', text: this.heroLine.text } : null);
+      ? { name: 'Harami', text: this.heroLine.text } : null);
     if (!chat) return;
     const cameraX = this.captureSceneEnabled ? this.burialScene.cameraX : 0;
     const cameraY = this.captureSceneEnabled ? this.burialScene.cameraY : 0;

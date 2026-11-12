@@ -459,5 +459,11 @@ try {
  ctx.currentTime+=100;soundEngine.setPaused(false);
  soundEngine.advanceClock(1/60);
  assert.ok(soundEngine.audioTime-before<.1,'resume does not skip an entire attack');
+ const beatCountBefore=soundEngine.bassBeatCount;
+ ctx.currentTime+=24*60*60;
+ const catchupStart=performance.now();
+ soundEngine.advanceClock(1/60);
+ assert.ok(performance.now()-catchupStart<100,'a long suspended source skips missed music loops promptly');
+ assert.ok(soundEngine.bassBeatCount>beatCountBefore,'music beat position catches up after suspension');
  console.log('PASS original whip pitch/rate, actual audio scheduling after recovery, and explicit pause/resume.');
 } finally { await rm(dir,{recursive:true,force:true}); }

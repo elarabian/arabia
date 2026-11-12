@@ -382,9 +382,9 @@ export class AtmosphereSystem {
         drawLayer(.18, -overscan, height + overscan);
         const transitionTop = groundY * .78;
         const transitionHeight = 80;
-        for (let i = 0; i < 10; i++) {
-          const top = transitionTop + i * transitionHeight / 10;
-          drawLayer(.72, top, top + transitionHeight / 10, (i + .5) / 10);
+        for (let i = 0; i < 4; i++) {
+          const top = transitionTop + i * transitionHeight / 4;
+          drawLayer(.72, top, top + transitionHeight / 4, (i + .5) / 4);
         }
         drawLayer(.72, transitionTop + transitionHeight, height + overscan);
       }

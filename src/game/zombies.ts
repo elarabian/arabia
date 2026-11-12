@@ -81,6 +81,7 @@ export class ZombieManager {
       isAttacking: false,
       attackTimer: 0,
       walkCycle: Math.random() * Math.PI * 2,
+      danceTempo: 3.8 + Math.random() * 1.1,
       staggerTimer: 0,
       staggerForce: 0,
       isDead: false,
@@ -132,14 +133,17 @@ export class ZombieManager {
         z.bowTimer = BOW_DURATION;
         return false;
       }).map(delay => delay - dt);
-      // Each bass hit lifts the whole line; alternating signs switch the stepping foot.
-      z.walkCycle = (this.lastBassBeat % 2 ? 1 : -1) * Math.asin(soundEngine.bassPulse);
+      // Keep dancing between bass hits; the music adds a brief burst of energy.
+      z.walkCycle += dt * (z.danceTempo + soundEngine.bassPulse * 1.7) + beats * .08;
       if (z.formation) {
         z.formation.angle += orbitStep;
         const { angle, radiusX, radiusY } = z.formation;
-        const slotX = playerX + Math.cos(angle) * radiusX;
+        const dance = z.bowTimer <= 0 && z.blastAngle === undefined;
+        const step = dance ? Math.sin(z.walkCycle) : 0;
+        const slotX = playerX + Math.cos(angle) * radiusX + step * 4 * z.scale;
         // Center the circle on the player's body, accounting for each sprite's height.
-        const slotY = groundY - 55 + Math.sin(angle) * radiusY + 55 * z.scale;
+        const slotY = groundY - 55 + Math.sin(angle) * radiusY + 55 * z.scale
+          - Math.abs(step) * 5 * z.scale;
         if (z.crowdMotion && z.crowdMotion.kind !== 'exit') {
           z.crowdMotion.elapsed += dt;
           const t = Math.min(1, z.crowdMotion.elapsed / z.crowdMotion.duration);
@@ -265,7 +269,7 @@ export class ZombieManager {
       const flying = z.blastAngle !== undefined && z.vy !== 0 && (z.blastDelay ?? 0) <= 0;
       const bow = bowAmount(z);
       const crawler = z.leftLeg.severed || z.rightLeg.severed || z.type === 'CRAWLER';
-      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 10 : running ? 7 : dragged ? 5 : 4);
+      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 13 : running ? 7 : dragged ? 5 : 4);
       const eye = z.isBurning ? '#fb923c' : z.type === 'BOSS' ? '#ef4444' : z.type === 'SPITTER' ? '#a3e635' : '#e2e8f0';
       if (z.blastGroundY !== undefined) {
         const height = Math.max(0, z.blastGroundY - z.y);
@@ -282,8 +286,8 @@ export class ZombieManager {
         ctx.scale(1 + squash * .16, 1 - squash * .24);
         ctx.translate(0, 47);
       } else if (dancing) {
-        ctx.translate(0, -Math.abs(Math.sin(z.walkCycle)) * 10);
-        ctx.rotate(Math.sin(z.walkCycle * .5) * .16);
+        ctx.translate(0, -Math.abs(Math.sin(z.walkCycle)) * 12);
+        ctx.rotate(Math.sin(z.walkCycle * .5) * .2);
       }
       ctx.scale(-z.direction, 1);
       if (z.blastGroundY === undefined) {
@@ -341,8 +345,8 @@ export class ZombieManager {
       if (dancing || flying || dragged || running) {
         ctx.strokeStyle = '#25262b'; ctx.lineWidth = 7;
         const legPhase = flying ? z.blastFlail ?? 0 : z.walkCycle;
-        ctx.beginPath(); ctx.moveTo(-9,-5); ctx.lineTo(-15 + Math.sin(legPhase)*11,6);
-        ctx.moveTo(9,-5); ctx.lineTo(15 - Math.sin(legPhase)*11,6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-9,-5); ctx.lineTo(-15 + Math.sin(legPhase)*14,6);
+        ctx.moveTo(9,-5); ctx.lineTo(15 - Math.sin(legPhase)*14,6); ctx.stroke();
       }
       if (dancing) {
         ctx.scale(-z.direction,1);

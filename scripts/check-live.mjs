@@ -182,6 +182,17 @@ try {
   assert.deepEqual(game.zombies.zombies.map(z => z.viewerName), ['Natur Reiki', 'Beyzagust']);
   game.update(2);
   soundEngine.stopWhip();
+  const dancePhase = game.zombies.zombies[0].walkCycle;
+  soundEngine.bassPulse = 0;
+  game.zombies.update(.25, game.playerX, game.groundY, game.atmosphere, () => {});
+  assert.ok(game.zombies.zombies[0].walkCycle - dancePhase > .8,
+    'viewers keep dancing between bass hits');
+  let parallaxDraws = 0;
+  const parallaxCanvas = new Proxy({}, { get: (_, key) => key === 'drawImage'
+    ? () => { parallaxDraws++; } : () => {} });
+  game.atmosphere.drawBackground(parallaxCanvas, game.width, game.height,
+    { complete: true, naturalWidth: 100 }, game.groundY, { x: 100, y: 0 });
+  assert.ok(parallaxDraws < 20, 'camera movement avoids excessive background redraws');
   game.addLiveLikes(4);
   game.addLiveLikes(15);
   game.addLiveLikes(4);

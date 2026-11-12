@@ -66,6 +66,7 @@ export interface Zombie {
   isAttacking: boolean;
   attackTimer: number;
   walkCycle: number;
+  danceTempo: number;
   staggerTimer: number;
   staggerForce: number;
   isDead: boolean;

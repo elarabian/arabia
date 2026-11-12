@@ -59,6 +59,7 @@ export default function App() {
   const [audienceBridgeActive, setAudienceBridgeActive] = useState(false);
   const [fallbackReady, setFallbackReady] = useState(false);
   const processedAudienceEventsRef = useRef(new Set<string>());
+  const appliedAudienceRef = useRef<{ username: string; updatedAt: number } | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastGameStatusRef = useRef(0);
   const relayRevisionRef = useRef<string | null>(null);
@@ -218,6 +219,9 @@ export default function App() {
       && audience.username?.toLowerCase() === tiktokUsername.toLowerCase();
     setAudienceBridgeActive(fresh);
     if (!fresh || audience?.username?.toLowerCase() !== tiktokUsername.toLowerCase()) return;
+    if (appliedAudienceRef.current?.username === tiktokUsername.toLowerCase()
+      && appliedAudienceRef.current.updatedAt === updatedAt) return;
+    appliedAudienceRef.current = { username: tiktokUsername.toLowerCase(), updatedAt: updatedAt! };
     if (audience.status) setLiveStatus(audience.status);
     if (typeof audience.message === 'string') setLiveMessage(audience.message);
     let added = false;
@@ -535,7 +539,7 @@ export default function App() {
             <div className="relative w-24 h-24 mb-4 rounded-full overflow-hidden border-2 border-amber-600/60 shadow-[0_0_25px_rgba(217,119,6,0.35)]">
               <img
                 src={CREST_URL}
-                alt="Kırbaç Avcısı Arması"
+                alt="Harami Arması"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
@@ -543,7 +547,7 @@ export default function App() {
 
             {/* Title */}
             <h1 className="font-cinzel text-3xl sm:text-4xl font-extrabold tracking-wider text-stone-100 drop-shadow-md mb-1.5">
-              KIRBAÇ AVCISI
+              HARAMİ · KIRBAÇ AVCISI
             </h1>
             <div className="text-xs uppercase tracking-[0.25em] font-cinzel text-amber-500 font-semibold mb-3">
               Sahra Çölü · Fizik Tabanlı Kırbaç Savaşı
@@ -635,7 +639,7 @@ export default function App() {
                   OYUN DURAKLATILDI
                 </h2>
                 <p className="text-xs text-stone-400 mb-6">
-                  Avcı nefesleniyor... Hazır olduğunuzda devam edin.
+                  Harami nefesleniyor... Hazır olduğunuzda devam edin.
                 </p>
 
                 <div className="flex flex-col gap-2.5">
@@ -671,7 +675,7 @@ export default function App() {
                 </div>
 
                 <h2 className="font-cinzel text-3xl font-extrabold text-red-600 tracking-wider mb-1">
-                  AVCI DÜŞTÜ...
+                  HARAMİ DÜŞTÜ...
                 </h2>
                 <div className="text-xs font-cinzel uppercase tracking-widest text-stone-400 mb-6">
                   Karanlık mezarlık cesedinizi yuttu
