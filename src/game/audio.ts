@@ -201,9 +201,12 @@ class SoundEngine {
   public sayWhipTaunt(): string | null {
     if (this.audioTime < this.nextTauntAt) return null;
     const lines = [
-      'Like gönderin bre kafirler!', 'Daha fazla kuma istiyorum!',
+      'Like gönderin bre kafirler!', 'Seni Kafir Tovbe Et.',
       'Ekrana tıkla yoksa kırbacı yersin!', 'Dans edin ki hediye göndersinler!',
       'Haydi, daha iyi kıvır!', 'Saçının teli gözüktü!',
+      'Kafir istemiyoruz.', 'Kafirlerrrrrrrr.', 'Sizi gidi Kafirlerrrrr.',
+      'Petrol Kuyularimi Kuruttunuz', 'Hurma Bahcelerimi Yagmaladiniz',
+      'Develerimi Kestiniz',
     ];
     let index = Math.floor(Math.random() * lines.length);
     if (index === this.previousTaunt) index = (index + 1) % lines.length;
