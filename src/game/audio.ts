@@ -170,11 +170,54 @@ class SoundEngine {
   }
 
   private reaction: SpeechSynthesisUtterance | null = null;
+  private heroUtterance: SpeechSynthesisUtterance | null = null;
+  private nextTauntAt = 0;
+  private nextPrayerAt = 0;
+  private previousTaunt = -1;
+  public sayWhipTaunt(): string | null {
+    if (this.audioTime < this.nextTauntAt) return null;
+    const lines = [
+      'Like gönderin bre kafirler!', 'Daha fazla kuma istiyorum!',
+      'Ekrana tıkla yoksa kırbacı yersin!', 'Dans edin ki hediye göndersinler!',
+      'Haydi, daha iyi kıvır!', 'Saçının teli gözüktü!',
+    ];
+    let index = Math.floor(Math.random() * lines.length);
+    if (index === this.previousTaunt) index = (index + 1) % lines.length;
+    this.previousTaunt = index;
+    this.nextTauntAt = this.audioTime + 7 + Math.random() * 4;
+    this.speakHero(lines[index]);
+    return lines[index];
+  }
+
+  public sayPrayer(): string | null {
+    if (this.audioTime < this.nextPrayerAt) return null;
+    const line = 'Tövbe estağfurullah, tövbe estağfurullah.';
+    this.nextPrayerAt = this.audioTime + 7;
+    this.speakHero(line);
+    return line;
+  }
+
+  private speakHero(line: string) {
+    if (this.muted || typeof window === 'undefined' || !('speechSynthesis' in window)
+      || this.reaction || this.recordedReaction || this.heroUtterance) return;
+    const utterance = new SpeechSynthesisUtterance(line);
+    const voices = window.speechSynthesis.getVoices().filter(voice => /^tr/i.test(voice.lang));
+    utterance.voice = voices.find(voice => !/Yelda|Emel|Seda|Female/i.test(voice.name)) ?? voices[0] ?? null;
+    utterance.lang = utterance.voice?.lang ?? 'tr-TR';
+    utterance.rate = .94;
+    utterance.pitch = .82;
+    utterance.volume = this.volume;
+    this.heroUtterance = utterance;
+    const finish = () => { if (this.heroUtterance === utterance) this.heroUtterance = null; };
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    window.speechSynthesis.speak(utterance);
+  }
   private reactionIndex = 0;
   private nextReactionAt = 0;
 
   public sayZombieReaction(): string | null {
-    if (this.audioTime < this.nextReactionAt || this.reaction || this.recordedReaction) return null;
+    if (this.audioTime < this.nextReactionAt || this.reaction || this.recordedReaction || this.heroUtterance) return null;
     // Distinct comic deliveries; readable captions stay separate from spoken elongations.
     const lines = [
       { file: 'ahhh_yandim_habibi.mp3', text: 'Ahhh, yandım habibi!', spoken: 'Ahhh! Yandım, habibiii!', rate: .98, pitch: 1.45 },

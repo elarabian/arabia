@@ -117,6 +117,7 @@ export class ZombieManager {
     this.orbitPending += beats * .1;
     const orbitStep = Math.min(this.orbitPending, dt * .42);
     this.orbitPending -= orbitStep;
+    const departed = new Set<Zombie>();
     // Each dancer owns a permanent ring slot. No attraction to the player's feet.
     for (const z of this.zombies) {
       z.speechCooldown = Math.max(0, z.speechCooldown - dt);
@@ -136,12 +137,30 @@ export class ZombieManager {
       if (z.formation) {
         z.formation.angle += orbitStep;
         const { angle, radiusX, radiusY } = z.formation;
-        z.x = playerX + Math.cos(angle) * radiusX;
+        const slotX = playerX + Math.cos(angle) * radiusX;
         // Center the circle on the player's body, accounting for each sprite's height.
-        z.y = groundY - 55 + Math.sin(angle) * radiusY + 55 * z.scale;
+        const slotY = groundY - 55 + Math.sin(angle) * radiusY + 55 * z.scale;
+        if (z.crowdMotion && z.crowdMotion.kind !== 'exit') {
+          z.crowdMotion.elapsed += dt;
+          const t = Math.min(1, z.crowdMotion.elapsed / z.crowdMotion.duration);
+          const eased = t * t * (3 - 2 * t);
+          z.x = z.crowdMotion.startX + (slotX - z.crowdMotion.startX) * eased;
+          z.y = z.crowdMotion.startY + (slotY - z.crowdMotion.startY) * eased;
+          if (t === 1) z.crowdMotion = undefined;
+        } else if (!z.crowdMotion) { z.x = slotX; z.y = slotY; }
+      }
+      if (z.crowdMotion?.kind === 'exit') {
+        const motion = z.crowdMotion;
+        motion.elapsed += dt;
+        const t = Math.min(1, motion.elapsed / motion.duration);
+        const eased = t * t * (3 - 2 * t);
+        z.x = motion.startX + (motion.endX! - motion.startX) * eased;
+        z.y = motion.startY + (motion.endY! - motion.startY) * eased;
+        if (t === 1) { z.crowdMotion = undefined; departed.add(z); }
       }
       z.direction = z.x < playerX ? 1 : -1;
     }
+    if (departed.size) this.zombies = this.zombies.filter(z => !departed.has(z));
   }
 
   public killZombie(z: Zombie, atmosphere: AtmosphereSystem, explode: boolean = false) {
@@ -344,6 +363,11 @@ export class ZombieManager {
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fff7ed';
         ctx.fillText(label, z.x, labelY - 6, labelWidth - 10);
+        if (z.favorite) {
+          ctx.fillStyle = '#fb7185';
+          ctx.font = 'bold 20px sans-serif';
+          ctx.fillText('♥', z.x, labelY - 27);
+        }
       }
       ctx.restore();
 

@@ -9,7 +9,7 @@ import { featureFlags } from './featureFlags';
 import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
-import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame } from 'lucide-react';
+import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
@@ -19,9 +19,10 @@ export const ARABIAN_DESERT_BG_URL = saharaUrl;
 export const GRAVEYARD_BG_URL = graveyardUrl;
 const CREST_URL = crestUrl;
 const DEFAULT_TIKTOK_USERNAME = 'ersanyakit';
-type AudienceEvent = { id: string; at: number; kind: 'like'; count: number }
+type AudienceEvent = { id: string; at: number; kind: 'like'; count: number; viewerId?: string }
   | { id: string; at: number; kind: 'chat'; chat: LiveChat }
-  | { id: string; at: number; kind: 'gift'; gift: LiveGift };
+  | { id: string; at: number; kind: 'gift'; gift: LiveGift }
+  | { id: string; at: number; kind: 'leave'; viewerId: string };
 const normalizeTikTokUsername = (value: string | null) => {
   const username = value?.trim().replace(/^@/, '') ?? '';
   return !username || username.toLowerCase() === 'astro.ses' ? DEFAULT_TIKTOK_USERNAME : username;
@@ -97,6 +98,7 @@ export default function App() {
       if (scene === 'BOMB') engineRef.current.setBombScene(true);
       else if (scene === 'BURIAL') engineRef.current.setBurialScene(true);
       else if (scene === 'HELL') engineRef.current.setHellScene(true);
+      else if (scene === 'TASBIH') engineRef.current.setTasbihMode(true);
     }
     if (savedControl) applyControlSnapshot(engineRef.current, savedControl);
   }
@@ -228,12 +230,20 @@ export default function App() {
       if (!event?.id || processedAudienceEventsRef.current.has(event.id)) continue;
       processedAudienceEventsRef.current.add(event.id);
       if (Date.now() - event.at > 15000) continue;
-      if (event.kind === 'like') engine.addLiveLikes(event.count);
+      if (event.kind === 'like') {
+        engine.addLiveLikes(event.count);
+        if (event.viewerId) engine.addViewerLikes(event.viewerId, event.count);
+      }
       else if (event.kind === 'chat' && event.chat?.id && event.chat?.text) {
         engine.receiveLiveChat(event.chat.id, event.chat.name, event.chat.text);
       } else if (event.kind === 'gift' && event.gift?.id) {
-        engine.receiveLiveGift(event.gift.id, event.gift.name);
+        engine.receiveLiveGift(event.gift.id, event.gift.name, event.gift.count);
+      } else if (event.kind === 'leave' && event.viewerId) {
+        engine.removeLiveViewer(event.viewerId);
       }
+    }
+    for (const viewer of Array.isArray(audience.viewers) ? audience.viewers : []) {
+      if (viewer?.id) engine.syncViewerSupport(viewer.id, viewer.likes, viewer.gifts);
     }
     if (processedAudienceEventsRef.current.size > 500) {
       for (const id of processedAudienceEventsRef.current) {
@@ -383,10 +393,16 @@ export default function App() {
     return connectTikTokLive(
       tiktokUsername,
       viewer => {
-        if (!bridgeSource && engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1);
+        if (!bridgeSource) {
+          if (engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1);
+          engine.syncViewerSupport(viewer.id, viewer.likes, viewer.gifts);
+        }
       },
-      count => {
-        if (!bridgeSource) engine.addLiveLikes(count);
+      (count, viewerId) => {
+        if (!bridgeSource) {
+          engine.addLiveLikes(count);
+          if (viewerId) engine.addViewerLikes(viewerId, count);
+        }
       },
       (status, message) => { setLiveStatus(status); setLiveMessage(message ?? ''); },
       chat => {
@@ -399,11 +415,12 @@ export default function App() {
       gift => {
         if (!bridgeSource) {
           engine.addLiveViewer(gift.id, gift.name || gift.id, gift.handle);
-          engine.receiveLiveGift(gift.id, gift.name);
+          engine.receiveLiveGift(gift.id, gift.name, gift.count);
           setTick(t => t + 1);
         }
       },
-      bridgeSource,
+      viewerId => { if (!bridgeSource) engine.removeLiveViewer(viewerId); },
+      !isLocalControl,
     );
   }, [engine, tiktokUsername, liveReconnect, controlMode, isLocalControl, obsMode,
     fallbackReady, audienceBridgeActive]);
@@ -474,8 +491,9 @@ export default function App() {
     publishControl({ rapidWhipSpeed: engine.rapidWhipSpeed });
   };
 
-  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL') => {
+  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH') => {
     engine.cancelLiveTasks();
+    engine.setTasbihMode(scene === 'TASBIH');
     if (scene === 'BOMB') engine.setBombScene(true);
     else if (scene === 'BURIAL') engine.setBurialScene(true);
     else if (scene === 'HELL') engine.setHellScene(true);
@@ -750,9 +768,9 @@ export default function App() {
             <button
               type="button"
               aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled}
+              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode}
               onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode
                 ? 'border-amber-500 bg-amber-600 text-stone-950'
                 : 'border-stone-700 bg-stone-900 text-stone-300'}`}
             >
@@ -790,8 +808,19 @@ export default function App() {
               <Flame className="h-3.5 w-3.5 shrink-0" />
               <span className="rapid-whip-copy">Cehennem</span>
             </button>
+            <button type="button" aria-label="Tesbih sahnesi" aria-pressed={engine.tasbihMode}
+              onClick={() => changeScene('TASBIH')}
+              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.tasbihMode
+                ? 'border-yellow-300 bg-yellow-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <CircleDot className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Tesbih · Tövbe estağfurullah</span>
+            </button>
           </div>
-          {engine.hellSceneEnabled ? (
+          {engine.tasbihMode ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-yellow-300">
+              <CircleDot className="h-4 w-4" /><span className="text-xs font-bold">Tesbih Sahnesi</span>
+            </div>
+          ) : engine.hellSceneEnabled ? (
             <div className="rapid-whip-copy flex items-center gap-2 text-red-400">
               <Flame className="h-4 w-4" /><span className="text-xs font-bold">Cehennem Sahnesi</span>
             </div>

@@ -2,6 +2,8 @@
 
 React/Vite oyunu. TikTok LIVE açıkken yayına yeni katılan her izleyici, üzerinde adı yazan bir zombi olarak görünür. Beğeniler kısa süreli seri kırbaç saldırısını hızlandırır. Gömülen izleyicinin adı RIP taşına yazılır.
 
+Yeni izleyiciler sol alt, sağ alt veya dağ yönünden dans halkasına girer; diğerleri yer açar. Uzun süre etkinlik göstermeyen izleyiciler yürüyerek çıkar. TikTok bağlantısı kişi bazlı güvenilir ayrılma olayı vermediği için bu çıkış **8 dakika etkinlik olmamasına** dayanır. Beğeni arttıkça o izleyicinin kırbaçlanma aralığı uzar; 100 beğeniye ulaşan veya hediye gönderen izleyici kalpli gözde olur ve hedef alınmaz. Kahraman kırbaç sırasında rastgele replikler söyler. Kontrol panelindeki **Tesbih** sahnesinde kırbaç atmaz, tesbih çeker ve “Tövbe estağfurullah” der. Yeni sözler tarayıcının Türkçe konuşma senteziyle seslendirilir; konuşma sentezi olmayan yayın kaynaklarında altyazı görünür.
+
 ## Yerelde çalıştırma
 
 Node.js 22 veya üzerini kullanın. `npm install` ardından `npm run dev` komutunu çalıştırın. TikTok bağlantısı varsayılan olarak açıktır; demo zombilerle oynamak için `VITE_TIKTOK_ENABLED=false` ayarlayın.
@@ -40,9 +42,9 @@ Yerel `/control` sayfasındaki **Vercel yayın adresi** alanına yayınlanan HTT
 
 Yayıncı adını oyundaki ayarlardan girin. Connector'ın `MEMBER` olayı her yeni izleyici için isimli zombi oluşturur; `LIKE` olayındaki `count` değeri beğeni hızlandırmasını artırır. Beğeni gönderen izleyicinin katılım olayı kaçırılmışsa o da zombi listesine eklenir. Aynı kullanıcı tekrar geldiğinde ikinci bir zombi oluşturulmaz.
 
-Sohbette cümle içinde geçen `kırbaç`, `göm`, `cehennem`, `patlat` veya `bomba` sözcükleri görev oluşturur. Türkçe karakterli ve karaktersiz yazımlar eşleştirilir. Mesajda bir izleyici adı varsa hedef o izleyicidir; yoksa mesajı yazan izleyicidir. Görevler sırayla çalışır ve aynı bekleyen komut tekrar eklenmez. Sohbet mesajları kahramanın üzerinde görünür. Bir hediye gömülü göndereni mezardan çıkarır ve gönderen için mevcut sahneden farklı rastgele bir kırbaç, gömme veya cehennem eylemi başlatır. Tekrar eden hediye serisi yalnızca bittiğinde işlenir.
+Sohbette cümle içinde geçen `kırbaç`, `göm`, `cehennem`, `patlat` veya `bomba` sözcükleri görev oluşturur. Türkçe karakterli ve karaktersiz yazımlar eşleştirilir. Mesajda bir izleyici adı varsa hedef o izleyicidir; yoksa mesajı yazan izleyicidir. Görevler sırayla çalışır ve aynı bekleyen komut tekrar eklenmez. Sohbet mesajları kahramanın üzerinde görünür. Bir hediye gömülü göndereni mezardan çıkarır ve göndereni kalpli gözde yapar. Tekrar eden hediye serisi yalnızca bittiğinde işlenir.
 
-Yayıncı canlı değilse bağlantı durumu panelde hata olarak görünür ve tarayıcı bağlantıyı yeniden dener. Vercel'de Chrome'daki `/control` sayfası TikTok olaylarını alır; sunucu izleyicileri, beğenileri, sohbet komutlarını ve hediyeleri Redis'e yazar. TikTok LIVE Studio içindeki `/game` sayfası bunları kontrol API'sinden okur. Kontrol sayfası kapanırsa oyun kendi TikTok bağlantısına geri döner. Katılım olayları mevcut izleyici listesinin tamamı değildir ve ayrılma olayı bu entegrasyonda izlenmez. `tiktok-live-connector` resmî TikTok API'si değildir; TikTok protokol değişiklikleri bağlantıyı etkileyebilir.
+Yayıncı canlı değilse bağlantı durumu panelde hata olarak görünür ve tarayıcı bağlantıyı yeniden dener. Vercel'de Chrome'daki `/control` sayfası TikTok olaylarını alır; sunucu izleyicileri, beğenileri, sohbet komutlarını ve hediyeleri Redis'e yazar. TikTok LIVE Studio içindeki `/game` sayfası bunları kontrol API'sinden okur. Kontrol sayfası kapanırsa oyun kendi TikTok bağlantısına geri döner. Katılım olayları mevcut izleyici listesinin tamamı değildir; ayrılma animasyonu son etkinlik zamanına göre başlar. `tiktok-live-connector` resmî TikTok API'si değildir; TikTok protokol değişiklikleri bağlantıyı etkileyebilir.
 
 ## Kontrol
 

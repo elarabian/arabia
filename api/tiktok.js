@@ -35,11 +35,13 @@ return async function handler(request, response) {
   let closed = false;
   let heartbeat;
   let audienceHeartbeat;
+  let departureTimer;
   let limit;
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   const audienceKey = `arabia:control:v1:audience`;
   const audienceViewers = new Map();
+  const viewerLastSeen = new Map();
   const audienceEvents = [];
   let audienceStatus = 'connecting';
   let audienceMessage = '';
@@ -62,13 +64,20 @@ return async function handler(request, response) {
     if (closed) return;
     response.write(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`);
     if (!relayAudience) return;
+    if ((event === 'like' || event === 'gift') && value?.id && audienceViewers.has(value.id)) {
+      const viewer = audienceViewers.get(value.id);
+      if (event === 'like') viewer.likes = (viewer.likes || 0) + value.count;
+      else viewer.gifts = (viewer.gifts || 0) + Math.max(1, value.count || 1);
+    }
+    if (event === 'leave' && value?.id) audienceViewers.delete(value.id);
     if (event === 'viewer' && value?.id && value?.name) {
-      audienceViewers.set(value.id, value);
+      audienceViewers.set(value.id, { ...audienceViewers.get(value.id), ...value });
       if (audienceViewers.size > 300) audienceViewers.delete(audienceViewers.keys().next().value);
-    } else if (event === 'like' || event === 'chat' || event === 'gift') {
+    } else if (event === 'like' || event === 'chat' || event === 'gift' || event === 'leave') {
       audienceEvents.push({ id: `${Date.now()}-${Math.random()}`, at: Date.now(),
         kind: event, ...(event === 'like' ? { count: value.count }
-          : event === 'chat' ? { chat: value } : { gift: value }) });
+          : event === 'chat' ? { chat: value } : event === 'leave' ? { viewerId: value.id } : { gift: value }),
+        ...(event === 'like' ? { viewerId: value.id } : {}) });
       if (audienceEvents.length > 60) audienceEvents.shift();
     } else if (event === 'ready') audienceStatus = 'connected';
     else if (event === 'offline' || event === 'unavailable') audienceStatus = 'offline';
@@ -91,6 +100,7 @@ return async function handler(request, response) {
     closed = true;
     clearInterval(heartbeat);
     clearInterval(audienceHeartbeat);
+    clearInterval(departureTimer);
     clearTimeout(limit);
     if (connection) void connection.disconnect().catch(() => {});
     response.end();
@@ -115,7 +125,10 @@ return async function handler(request, response) {
         const record = saved?.result ? JSON.parse(saved.result) : null;
         if (record?.audience?.username === username && Date.now() - record.audienceAt < 1800000) {
           for (const viewer of record.audience.viewers || []) {
-            if (viewer?.id && viewer?.name) audienceViewers.set(viewer.id, viewer);
+            if (viewer?.id && viewer?.name && Date.now() - (viewer.lastSeen || record.audienceAt) < 480000) {
+              audienceViewers.set(viewer.id, viewer);
+              viewerLastSeen.set(viewer.id, viewer.lastSeen || record.audienceAt);
+            }
           }
         }
       } catch { /* A fresh stream can start without the previous audience. */ }
@@ -138,17 +151,30 @@ return async function handler(request, response) {
     };
     const emitViewer = event => {
       const { id, name, handle } = viewerData(event);
-      if (!id || !name || seenViewers.has(id)) return;
+      if (!id || !name) return;
+      viewerLastSeen.set(id, Date.now());
+      if (audienceViewers.has(id)) audienceViewers.set(id,
+        { ...audienceViewers.get(id), id, name, handle, lastSeen: Date.now() });
+      if (seenViewers.has(id)) return;
       seenViewers.add(id);
-      send('viewer', { id, name, handle });
+      send('viewer', { id, name, handle, lastSeen: Date.now() });
     };
+    departureTimer = setInterval(() => {
+      for (const [id, seenAt] of viewerLastSeen) {
+        if (Date.now() - seenAt < 480000) continue;
+        viewerLastSeen.delete(id);
+        seenViewers.delete(id);
+        send('leave', { id });
+      }
+    }, 30000);
     connection.on(WebcastEvent.MEMBER, emitViewer);
     connection.on(WebcastEvent.LIKE, data => {
       emitViewer(data);
       const rawCount = Number(data?.count ?? data?.likeCount);
       if (!Number.isFinite(rawCount) || rawCount <= 0) return;
       const count = Math.min(1000, Math.floor(rawCount));
-      send('like', { count });
+      const { id, name, handle } = viewerData(data);
+      send('like', { count, id, name, handle });
     });
     connection.on(WebcastEvent.CHAT, data => {
       emitViewer(data);

@@ -4,7 +4,7 @@ import { soundEngine } from './game/audio';
 export const CONTROL_STORAGE_KEY = 'arabia.control.v1';
 export const CONTROL_CHANNEL = 'arabia.control.v1';
 
-export type ControlScene = 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL';
+export type ControlScene = 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH';
 export type ControlMap = 'DESERT' | 'GRAVEYARD';
 
 export interface ControlSnapshot {
@@ -29,7 +29,7 @@ export function parseControlSnapshot(value: unknown): ControlSnapshot | null {
   const data = value as Partial<ControlSnapshot>;
   return {
       map: data.map === 'GRAVEYARD' ? 'GRAVEYARD' : 'DESERT',
-      scene: data.scene === 'BOMB' || data.scene === 'BURIAL' || data.scene === 'HELL'
+      scene: data.scene === 'BOMB' || data.scene === 'BURIAL' || data.scene === 'HELL' || data.scene === 'TASBIH'
         ? data.scene : 'WHIP',
       username: typeof data.username === 'string' ? data.username.trim().replace(/^@/, '') : '',
       rapidWhip: data.rapidWhip === true,
@@ -56,7 +56,7 @@ export function captureControlSnapshot(
 ): ControlSnapshot {
   return {
     map,
-    scene: engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
+    scene: engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
       : engine.bombSceneEnabled ? 'BOMB' : 'WHIP',
     username,
     rapidWhip: engine.rapidWhip,
@@ -70,10 +70,11 @@ export function captureControlSnapshot(
 }
 
 export function applyControlSnapshot(engine: GameEngine, snapshot: ControlSnapshot): void {
-  const currentScene = engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
+  const currentScene = engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
     : engine.bombSceneEnabled ? 'BOMB' : 'WHIP';
   if (currentScene !== snapshot.scene) {
     engine.cancelLiveTasks();
+    engine.setTasbihMode(snapshot.scene === 'TASBIH');
     if (snapshot.scene === 'BOMB') engine.setBombScene(true);
     else if (snapshot.scene === 'BURIAL') engine.setBurialScene(true);
     else if (snapshot.scene === 'HELL') engine.setHellScene(true);

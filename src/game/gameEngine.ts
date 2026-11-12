@@ -61,6 +61,9 @@ export class GameEngine {
   private activeTarget: Zombie | null = null;
   private liveViewers = new Map<string, string>();
   private liveHandles = new Map<string, string>();
+  private viewerSupport = new Map<string, { likes: number; gifts: number }>();
+  public tasbihMode = false;
+  private heroLine: { text: string; until: number } | null = null;
   private queuedTarget: Zombie | null = null;
   private activeStrikeAutomatic = false;
   public groundY: number = 550;
@@ -169,7 +172,58 @@ export class GameEngine {
     this.liveWhipSpeed = Math.min(2, this.liveWhipSpeed + .08 + likes / 90);
   }
 
+  public addViewerLikes(id: string, count: number) {
+    const z = this.zombies.zombies.find(viewer => viewer.viewerId === id);
+    if (!z || !Number.isFinite(count) || count <= 0) return;
+    const support = this.viewerSupport.get(id) ?? { likes: 0, gifts: 0 };
+    support.likes = Math.min(100000, support.likes + Math.floor(count));
+    this.viewerSupport.set(id, support);
+    z.likes = support.likes;
+    if (z.likes >= 100) this.makeFavorite(z);
+  }
+
+  public syncViewerSupport(id: string, likes = 0, gifts = 0) {
+    const z = this.zombies.zombies.find(viewer => viewer.viewerId === id);
+    if (!z) return;
+    const support = this.viewerSupport.get(id) ?? { likes: 0, gifts: 0 };
+    support.likes = Math.max(support.likes, Number.isFinite(likes) ? likes : 0);
+    support.gifts = Math.max(support.gifts, Number.isFinite(gifts) ? gifts : 0);
+    this.viewerSupport.set(id, support);
+    z.likes = support.likes;
+    z.gifts = support.gifts;
+    if (support.likes >= 100 || support.gifts > 0) this.makeFavorite(z);
+  }
+
+  private makeFavorite(z: Zombie) {
+    z.favorite = true;
+    if (this.queuedTarget === z) { this.queuedTarget = null; this.queuedStrike = null; }
+    if (this.activeTarget === z) this.activeTarget = null;
+    if (this.burialScene.spareViewer(z)) {
+      this.activeLiveTask = null;
+      this.placeDancer(z, this.zombies.zombies.indexOf(z), this.openDancerAngle(z));
+    }
+  }
+
+  public setTasbihMode(enabled: boolean) {
+    if (this.tasbihMode === enabled) return;
+    this.tasbihMode = enabled;
+    if (enabled) {
+      this.bombSceneEnabled = false;
+      this.burialSceneEnabled = false;
+      this.hellSceneEnabled = false;
+      this.burialScene.reset(this.zombies.zombies);
+      this.zombies.zombies.forEach((z, index) => {
+        if (!z.formation && z.crowdMotion?.kind !== 'exit') this.placeDancer(z, index);
+      });
+      soundEngine.stopWhip();
+      this.queuedStrike = null;
+      this.queuedTarget = null;
+      this.activeTarget = null;
+    }
+  }
+
   public setBombScene(enabled: boolean) {
+    if (enabled) this.tasbihMode = false;
     if (this.bombSceneEnabled === enabled && !this.captureSceneEnabled) return;
     this.bombSceneEnabled = enabled;
     this.burialSceneEnabled = false;
@@ -183,6 +237,7 @@ export class GameEngine {
   }
 
   public setBurialScene(enabled: boolean) {
+    if (enabled) this.tasbihMode = false;
     if (this.burialSceneEnabled === enabled && !this.bombSceneEnabled && !this.hellSceneEnabled) return;
     this.burialSceneEnabled = enabled;
     this.hellSceneEnabled = false;
@@ -197,6 +252,7 @@ export class GameEngine {
   }
 
   public setHellScene(enabled: boolean) {
+    if (enabled) this.tasbihMode = false;
     if (this.hellSceneEnabled === enabled && !this.bombSceneEnabled && !this.burialSceneEnabled) return;
     this.hellSceneEnabled = enabled;
     this.burialSceneEnabled = false;
@@ -288,7 +344,7 @@ export class GameEngine {
     this.atmosphere.particles = [];
     this.atmosphere.severedLimbs = [];
     if (featureFlags.tiktokEnabled) {
-      for (const [id, name] of this.liveViewers) this.spawnLiveViewer(id, name, this.liveHandles.get(id));
+      for (const [id, name] of this.liveViewers) this.spawnLiveViewer(id, name, this.liveHandles.get(id), false);
     } else {
       for (let i = 0; i < DANCER_COUNT; i++) {
         this.spawnWaveZombie();
@@ -306,7 +362,7 @@ export class GameEngine {
     if (!this.currentChat && this.chatQueue.length) {
       this.currentChat = { ...this.chatQueue.shift()!, until: soundEngine.audioTime + 3.4 };
     }
-    this.processLiveTasks();
+    if (!this.tasbihMode) this.processLiveTasks();
     if (this.liveWhipBoostTime > 0) {
       this.liveWhipBoostTime = Math.max(0, this.liveWhipBoostTime - dt);
       if (this.liveWhipBoostTime === 0) this.liveWhipSpeed = 1;
@@ -314,6 +370,20 @@ export class GameEngine {
 
     // Advance the visible dance pose before aiming so collision and rendering agree.
     this.zombies.update(dt, this.playerX, this.groundY, this.atmosphere, () => {});
+    if (this.tasbihMode) {
+      this.heroVisualAngle = Math.PI / 2;
+      this.handsRaised = .3 + Math.sin(soundEngine.audioTime * 5) * .12;
+      this.heroJump = 0;
+      this.bodyLean = Math.sin(soundEngine.audioTime * 2) * 2;
+      const shoulder = heroShoulder(this.playerX, this.groundY, this.heroVisualAngle);
+      this.arm = solveArm(shoulder,
+        { x: this.playerX + 20, y: this.groundY - 53 + Math.sin(soundEngine.audioTime * 5) * 4 },
+        { x: this.playerX + 30, y: this.groundY - 65 }, HERO_SCALE);
+      const line = soundEngine.sayPrayer();
+      if (line) this.heroLine = { text: line, until: soundEngine.audioTime + 4 };
+      this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
+      return;
+    }
     if (this.bombSceneEnabled) {
       this.updateBombScene(dt);
       this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
@@ -327,17 +397,19 @@ export class GameEngine {
     const previousAttack = soundEngine.attack;
     const previousAge = previousAttack ? soundEngine.audioTime-previousAttack.start : Infinity;
     const playing = previousAttack !== null && soundEngine.audioTime < previousAttack.cycleEnd;
-    if (!playing && !this.queuedStrike && this.zombies.zombies.length > 0) {
-      this.queuedTarget = this.zombies.zombies[this.autoIndex % this.zombies.zombies.length];
-      const torso = this.zombies.getHitTargets(this.queuedTarget)[1];
-      this.queuedStrike = { x: torso.x, y: torso.y, power: .95+((this.autoIndex*7)%11)*.065, automatic: true };
+    if (!playing && !this.queuedStrike) {
+      this.queuedTarget = this.nextWhipTarget();
+      if (this.queuedTarget) {
+        const torso = this.zombies.getHitTargets(this.queuedTarget)[1];
+        this.queuedStrike = { x: torso.x, y: torso.y, power: .95+((this.autoIndex*7)%11)*.065, automatic: true };
+      }
     }
     const target = this.queuedStrike
       ? this.queuedTarget ? this.zombies.getHitTargets(this.queuedTarget)[1] : this.queuedStrike
       : this.activeTarget ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
     // Turn during recovery rather than waiting idle after every recording.
     const nextDancer = playing && !this.queuedStrike && previousAge >= previousAttack.peak+.08
-      ? this.zombies.zombies[this.autoIndex % this.zombies.zombies.length] : null;
+      ? this.nextWhipTarget() : null;
     const currentContact = playing && previousAge < previousAttack.peak && this.activeTarget
       ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
     const turnTarget = currentContact ?? (nextDancer ? this.zombies.getHitTargets(nextDancer)[1] : target);
@@ -360,7 +432,10 @@ export class GameEngine {
         this.activeStrikeAutomatic = this.queuedStrike.automatic;
         this.activeTarget = this.queuedTarget;
         this.queuedTarget = null;
-        if (this.queuedStrike.automatic) this.autoIndex = (this.autoIndex+1) % this.zombies.zombies.length;
+        if (this.queuedStrike.automatic) this.autoIndex++;
+        if (this.activeTarget) this.activeTarget.lastWhippedAt = soundEngine.audioTime;
+        const line = soundEngine.sayWhipTaunt();
+        if (line) this.heroLine = { text: line, until: soundEngine.audioTime + 3.5 };
         this.queuedStrike = null;
       }
     }
@@ -704,16 +779,33 @@ export class GameEngine {
     this.placeDancer(z, this.waveZombiesSpawned);
   }
 
-  private spawnLiveViewer(id: string, name: string, handle?: string) {
+  private spawnLiveViewer(id: string, name: string, handle?: string, animate = true) {
     const z = this.zombies.spawnZombie('SHAMBLER', this.playerX, this.groundY);
     z.scale = .72;
     z.viewerId = id;
     z.viewerName = Array.from(name).slice(0, 24).join('');
     z.viewerHandle = handle;
-    this.zombies.zombies.forEach((viewer, index) => {
-      if (viewer.formation || viewer === z) {
-        viewer.formation = undefined;
-        this.placeDancer(viewer, index);
+    const support = this.viewerSupport.get(id);
+    z.likes = support?.likes ?? 0;
+    z.gifts = support?.gifts ?? 0;
+    z.favorite = (z.likes >= 100 || z.gifts > 0);
+    const dancers = this.zombies.zombies.filter(viewer => !viewer.buried && viewer.crowdMotion?.kind !== 'exit'
+      && (viewer.formation || viewer === z));
+    dancers.forEach((viewer, index) => {
+      const startX = viewer.x, startY = viewer.y;
+      viewer.formation = undefined;
+      this.placeDancer(viewer, index, index / dancers.length * Math.PI * 2 - Math.PI / 2);
+      if (animate) {
+        if (viewer === z) {
+          const route = Math.floor(Math.random() * 3);
+          const fromX = route === 0 ? -45 : route === 1 ? this.width + 45 : this.width * .64;
+          const fromY = route === 2 ? this.height * .12 : this.height * .79;
+          viewer.x = fromX; viewer.y = fromY;
+          viewer.crowdMotion = { kind: 'enter', startX: fromX, startY: fromY, elapsed: 0, duration: 1.8 };
+        } else {
+          viewer.x = startX; viewer.y = startY;
+          viewer.crowdMotion = { kind: 'reflow', startX, startY, elapsed: 0, duration: 1.2 };
+        }
       }
     });
     this.waveZombiesSpawned = this.zombies.zombies.length;
@@ -735,9 +827,38 @@ export class GameEngine {
     return true;
   }
 
+  public removeLiveViewer(id: string) {
+    this.liveViewers.delete(id);
+    this.liveHandles.delete(id);
+    this.viewerSupport.delete(id);
+    const z = this.zombies.zombies.find(viewer => viewer.viewerId === id);
+    if (!z || z.crowdMotion?.kind === 'exit') return;
+    if (z.buried) {
+      this.burialScene.releaseViewer(z);
+      z.buried = false;
+      z.burialClipY = undefined;
+    }
+    const startX = z.x, startY = z.y;
+    z.formation = undefined;
+    z.crowdMotion = { kind: 'exit', startX, startY,
+      endX: startX < this.playerX ? -55 : this.width + 55,
+      endY: this.height * .79, elapsed: 0, duration: 1.5 };
+    if (this.queuedTarget === z) { this.queuedTarget = null; this.queuedStrike = null; }
+    if (this.activeTarget === z) this.activeTarget = null;
+    const remaining = this.zombies.zombies.filter(viewer => viewer !== z && viewer.formation && !viewer.buried);
+    remaining.forEach((viewer, index) => {
+      const oldX = viewer.x, oldY = viewer.y;
+      viewer.formation = undefined;
+      this.placeDancer(viewer, index, index / remaining.length * Math.PI * 2 - Math.PI / 2);
+      viewer.x = oldX; viewer.y = oldY;
+      viewer.crowdMotion = { kind: 'reflow', startX: oldX, startY: oldY, elapsed: 0, duration: 1.2 };
+    });
+  }
+
   public clearLiveViewers() {
     this.liveViewers.clear();
     this.liveHandles.clear();
+    this.viewerSupport.clear();
     this.liveLikes = 0;
     this.liveWhipBoostTime = 0;
     this.liveWhipSpeed = 1;
@@ -775,12 +896,20 @@ export class GameEngine {
     }
   }
 
-  public receiveLiveGift(senderId: string, name: string) {
+  public receiveLiveGift(senderId: string, name: string, count = 1) {
     const zombie = this.zombies.zombies.find(z => z.viewerId === senderId);
+    if (zombie) {
+      const support = this.viewerSupport.get(senderId) ?? { likes: 0, gifts: 0 };
+      support.gifts += Math.max(1, Math.floor(count));
+      this.viewerSupport.set(senderId, support);
+      zombie.gifts = support.gifts;
+      this.makeFavorite(zombie);
+    }
     if (zombie && this.burialScene.releaseViewer(zombie)) {
       this.placeDancer(zombie, this.zombies.zombies.indexOf(zombie), this.openDancerAngle(zombie));
       this.chatQueue.push({ name: name || senderId, text: 'Hediye geldi! Mezardan çıktın!' });
     }
+    if (zombie?.favorite) return;
     const currentKind = this.hellSceneEnabled ? 'hell' : this.burialSceneEnabled ? 'burial' : 'whip';
     const choices: LiveAction['kind'][] = (['whip', 'burial', 'hell'] as LiveAction['kind'][])
       .filter(kind => kind !== currentKind);
@@ -804,7 +933,7 @@ export class GameEngine {
     while (this.liveTaskQueue.length) {
       const task = this.liveTaskQueue.shift()!;
       const zombie = task.targetId ? this.zombies.zombies.find(z => z.viewerId === task.targetId) : undefined;
-      if (task.kind !== 'bomb' && (!zombie || zombie.buried)) continue;
+      if (task.kind !== 'bomb' && (!zombie || zombie.buried || zombie.favorite)) continue;
       if (task.kind === 'bomb') {
         if (this.bombSceneEnabled) this.setBombScene(false);
         this.setBombScene(true);
@@ -830,8 +959,8 @@ export class GameEngine {
   }
 
   public snapAt(x: number, y: number, power = 1.25) {
-    if (this.bombSceneEnabled || this.captureSceneEnabled || this.isGameOver) return false;
-    const closest = this.zombies.zombies.flatMap(z =>
+    if (this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode || this.isGameOver) return false;
+    const closest = this.zombies.zombies.filter(z => !z.favorite && !z.buried && z.crowdMotion?.kind !== 'exit').flatMap(z =>
       this.zombies.getHitTargets(z).map(target => ({ z, target,
         distance: Math.hypot(target.x-x,target.y-y) - target.r }))
     ).sort((a,b) => a.distance-b.distance)[0];
@@ -846,8 +975,21 @@ export class GameEngine {
     return true;
   }
 
+  private nextWhipTarget() {
+    const crowd = this.zombies.zombies.filter(z => !z.buried && !z.favorite
+      && z.crowdMotion?.kind !== 'exit' && z.crowdMotion?.kind !== 'enter' && !z.burialDragging);
+    for (let step = 0; step < crowd.length; step++) {
+      const z = crowd[(this.autoIndex + step) % crowd.length];
+      const cooldown = 1 + Math.min(14, (z.likes ?? 0) / 7);
+      if (z.lastWhippedAt === undefined || soundEngine.audioTime - z.lastWhippedAt >= cooldown) {
+        return z;
+      }
+    }
+    return null;
+  }
+
   public snapNearest() {
-    const target = this.zombies.zombies[this.autoIndex % this.zombies.zombies.length];
+    const target = this.nextWhipTarget();
     if (!target) return false;
     const torso = this.zombies.getHitTargets(target)[1];
     return this.snapAt(torso.x,torso.y);
@@ -859,6 +1001,7 @@ export class GameEngine {
     // The popper itself must touch the visible sprite; the rope cannot score remote hits.
     const candidates = this.activeTarget ? [this.activeTarget] : this.zombies.zombies;
     for (const z of candidates) {
+      if (z.favorite || z.crowdMotion?.kind === 'exit') continue;
       const target = this.zombies.getHitTargets(z).find(t => Math.hypot(t.x-tip.x,t.y-tip.y) <= t.r+tip.radius+3);
       if (target) this.handleZombieHit(z,target.part,tip.x,tip.y,this.aimAngle,true,
         isSonicCrack,tipSpeed,this.whip.config.baseDamage);
@@ -876,6 +1019,7 @@ export class GameEngine {
     tipSpeed: number,
     baseDmg: number
   ) {
+    if (z.favorite) return;
     // Non-lethal dance mode: preserve health, limbs and the entire crowd.
     z.danceTimer = Math.min(10, z.danceTimer + 2+this.whip.strikePower*3);
     z.bowDelays.push(20);
@@ -989,6 +1133,24 @@ export class GameEngine {
       this.bodyLean,this.handsRaised,this.bombSceneEnabled ? this.bombHeroScale : HERO_SCALE,
       this.captureSceneEnabled && this.burialScene.walking ? Math.sin(this.burialScene.walkDistance / 19) * .7
         : this.bombSceneEnabled && this.bombSceneTime < 2.58 ? Math.sin(this.bombSceneTime * 20) : 0);
+  }
+
+  private drawTasbih(ctx: CanvasRenderingContext2D) {
+    if (!this.tasbihMode) return;
+    const pulse = Math.sin(soundEngine.audioTime * 5) * 5;
+    const centerX = this.playerX + 21;
+    const centerY = this.groundY - 51 + pulse;
+    ctx.save();
+    ctx.strokeStyle = '#c9a96e'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(centerX, centerY + 15, 15, 22, -.25, 0, Math.PI * 2); ctx.stroke();
+    for (let bead = 0; bead < 18; bead++) {
+      const angle = bead / 18 * Math.PI * 2;
+      ctx.fillStyle = bead % 3 === 0 ? '#fbbf24' : '#78350f';
+      ctx.beginPath();
+      ctx.arc(centerX + Math.cos(angle) * 15, centerY + 15 + Math.sin(angle) * 22, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   private drawBomb(ctx: CanvasRenderingContext2D) {
@@ -1113,8 +1275,9 @@ export class GameEngine {
   }
 
   private drawLiveChat(ctx: CanvasRenderingContext2D) {
-    if (!this.currentChat) return;
-    const chat = this.currentChat;
+    const chat = this.currentChat ?? (this.heroLine && soundEngine.audioTime < this.heroLine.until
+      ? { name: 'Avcı', text: this.heroLine.text } : null);
+    if (!chat) return;
     const cameraX = this.captureSceneEnabled ? this.burialScene.cameraX : 0;
     const cameraY = this.captureSceneEnabled ? this.burialScene.cameraY : 0;
     const heroX = this.bombSceneEnabled ? this.bombHeroX
@@ -1203,13 +1366,14 @@ export class GameEngine {
 
     // 4. Draw Hunter
     this.drawHunter(ctx);
+    this.drawTasbih(ctx);
 
     this.zombies.drawZombies(ctx, this.groundY, 'front');
 
     // 5. Draw Whip
     if (this.captureSceneEnabled) this.burialScene.drawForeground(ctx, this.arm.wrist.x, this.arm.wrist.y);
     else if (this.bombSceneEnabled) this.drawBombBlast(ctx);
-    else {
+    else if (!this.tasbihMode) {
       this.whip.draw(ctx, time);
       this.drawGrip(ctx);
     }

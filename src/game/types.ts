@@ -40,6 +40,12 @@ export interface Zombie {
   viewerId?: string;
   viewerName?: string;
   viewerHandle?: string;
+  likes?: number;
+  gifts?: number;
+  favorite?: boolean;
+  lastWhippedAt?: number;
+  crowdMotion?: { kind: 'enter' | 'reflow' | 'exit'; startX: number; startY: number;
+    endX?: number; endY?: number; elapsed: number; duration: number };
   type: ZombieType;
   x: number;
   y: number;

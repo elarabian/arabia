@@ -78,10 +78,12 @@ try {
   }))({ method: 'GET', url: '/api/tiktok?username=naturreiki&relay=1' }, relayResponse);
   connection.emit('member', { uniqueId: 'beyzagust' });
   connection.emit('chat', { uniqueId: 'beyzagust', comment: 'kırbaçla' });
+  connection.emit('like', { uniqueId: 'beyzagust', count: 120 });
   await new Promise(resolve => setTimeout(resolve, 20));
   const relay = JSON.parse(relayRecords.get('arabia:control:v1:audience'));
   assert.equal(relay.audience.status, 'connected');
   assert.equal(relay.audience.viewers[0].name, 'beyzagust');
+  assert.equal(relay.audience.viewers[0].likes, 120);
   assert.equal(relay.audience.events[0].kind, 'chat');
   const { default: controlHandler } = await import('../api/control.js?relay-check=1');
   const controlResponse = { statusCode: 0, setHeader() {}, end(value) { this.body = value; } };
@@ -101,6 +103,8 @@ try {
   }))({ method: 'GET', url: '/api/tiktok?username=naturreiki&relay=1' }, reopenedResponse);
   assert.ok(reopenedEvents.some(value => value.includes('event: viewer') && value.includes('beyzagust')),
     'a second game browser receives viewers who joined before it opened');
+  assert.ok(reopenedEvents.some(value => value.includes('event: viewer') && value.includes('"likes":120')),
+    'the second browser restores supporter status as well as the viewer name');
   reopenedResponse.emit('close');
   await new Promise(resolve => setTimeout(resolve, 20));
 } finally {
@@ -176,10 +180,17 @@ try {
   assert.equal(game.addLiveViewer('42', 'Natur Reiki'), false);
   assert.equal(game.addLiveViewer('43', 'Beyzagust'), true);
   assert.deepEqual(game.zombies.zombies.map(z => z.viewerName), ['Natur Reiki', 'Beyzagust']);
+  game.update(2);
+  soundEngine.stopWhip();
   game.addLiveLikes(4);
   game.addLiveLikes(15);
   game.addLiveLikes(4);
   assert.equal(game.liveLikes, 23);
+  game.addViewerLikes('42', 60);
+  assert.equal(game.zombies.zombies[0].likes, 60);
+  game.zombies.zombies[0].lastWhippedAt = soundEngine.audioTime;
+  assert.equal(game.nextWhipTarget()?.viewerId, '43',
+    'a frequent liker rests while the other dancer remains an eligible target');
   assert.equal(game.isRapidWhipActive, true);
   game.setRapidWhipSpeed(.2);
   assert.ok(game.effectiveRapidWhipSpeed<1 && game.effectiveRapidWhipSpeed>.2,
@@ -201,8 +212,32 @@ try {
   game.burialScene.drawGround(graveCanvas);
   assert.ok(graveText.includes('RIP') && graveText.includes('Natur Reiki'),
     'grave marker shows RIP and the buried viewer name');
+  game.addViewerLikes('42', 40);
+  assert.equal(game.zombies.zombies[0].favorite, true);
+  assert.equal(game.nextWhipTarget()?.viewerId, '43',
+    'a favorite is never selected for an automatic strike');
+  game.restartGame();
+  assert.equal(game.zombies.zombies[0].favorite, true, 'favorite status survives a scene restart');
   game.clearLiveViewers();
   assert.equal(game.zombies.zombies.length, 0, 'changing broadcaster clears the old audience');
+  const crowdGame = new GameEngine();crowdGame.restartGame();
+  crowdGame.addLiveViewer('a','Yeni Gelen');
+  assert.equal(crowdGame.zombies.zombies[0].crowdMotion?.kind,'enter');
+  crowdGame.update(2);
+  assert.equal(crowdGame.zombies.zombies[0].crowdMotion,undefined,
+    'a new viewer reaches the dance ring after the entrance');
+  crowdGame.addLiveViewer('b','İkinci Gelen');
+  assert.equal(crowdGame.zombies.zombies[0].crowdMotion?.kind,'reflow',
+    'the existing viewer moves aside for a newcomer');
+  crowdGame.removeLiveViewer('b');
+  assert.equal(crowdGame.zombies.zombies.find(z=>z.viewerId==='b')?.crowdMotion?.kind,'exit');
+  crowdGame.update(2);
+  assert.equal(crowdGame.zombies.zombies.some(z=>z.viewerId==='b'),false,
+    'an inactive viewer walks out before removal');
+  crowdGame.setTasbihMode(true);
+  crowdGame.update(1/60);
+  assert.equal(crowdGame.tasbihMode,true);
+  assert.equal(soundEngine.attack,null,'tasbih mode stops whipping');
   const commandGame = new GameEngine();commandGame.restartGame();
   commandGame.addLiveViewer('42','Natur Reiki');commandGame.addLiveViewer('43','Beyzagust');
   commandGame.receiveLiveChat('42','Natur Reiki','Beyzagust kişisini cehenneme at!');
@@ -232,8 +267,8 @@ try {
   assert.ok(Math.abs(Math.cos(rescued.formation.angle-outside.formation.angle)+1)<.001,
     'a rescued zombie takes the opposite ring position from the outside zombie');
   assert.equal(commandGame.burialScene.mounds.length,0,'the released grave marker is removed');
-  assert.ok(['whip','hell'].includes(commandGame.liveTaskQueue.at(-1)?.kind),
-    'a gift schedules a different random scene for its sender');
+  assert.equal(rescued.favorite,true,'a gift makes its sender a protected favorite');
+  assert.equal(commandGame.liveTaskQueue.length,0,'the favorite is not queued for another attack');
   const bombGame=new GameEngine();bombGame.restartGame();
   bombGame.addLiveViewer('42','Natur Reiki');
   bombGame.receiveLiveChat('42','Natur Reiki','hadi şu bombayı patlat');

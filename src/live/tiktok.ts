@@ -2,6 +2,8 @@ export interface LiveViewer {
   id: string;
   name: string;
   handle?: string;
+  likes?: number;
+  gifts?: number;
 }
 
 export interface LiveChat extends LiveViewer { text: string }
@@ -10,10 +12,11 @@ export interface LiveGift extends LiveViewer { gift: string; count: number }
 export type LiveStatus = 'connecting' | 'connected' | 'offline' | 'error';
 
 export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewer) => void,
-  onLike: (count: number) => void,
+  onLike: (count: number, viewerId?: string) => void,
   onStatus: (status: LiveStatus, message?: string) => void,
   onChat: (chat: LiveChat) => void,
   onGift: (gift: LiveGift) => void,
+  onLeave: (viewerId: string) => void,
   relayAudience = false) {
   const cleanUsername = username.trim().replace(/^@/, '');
   const url = `/api/tiktok?username=${encodeURIComponent(cleanUsername)}${relayAudience ? '&relay=1' : ''}`;
@@ -82,8 +85,15 @@ export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewe
     current.addEventListener('like', event => {
       if (stopped || source !== current) return;
       try {
-        const { count } = JSON.parse((event as MessageEvent).data) as { count: number };
-        if (Number.isFinite(count) && count > 0) onLike(count);
+        const { count, id } = JSON.parse((event as MessageEvent).data) as { count: number; id?: string };
+        if (Number.isFinite(count) && count > 0) onLike(count, id);
+      } catch { /* Ignore malformed events. */ }
+    });
+    current.addEventListener('leave', event => {
+      if (stopped || source !== current) return;
+      try {
+        const { id } = JSON.parse((event as MessageEvent).data) as { id?: string };
+        if (id) onLeave(id);
       } catch { /* Ignore malformed events. */ }
     });
     current.addEventListener('chat', event => {

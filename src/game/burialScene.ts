@@ -127,14 +127,35 @@ export class BurialScene {
     return true;
   }
 
+  public spareViewer(z: Zombie) {
+    if (this.target !== z || z.buried) return false;
+    this.target = null;
+    this.time = 0;
+    this.cameraX = 0;
+    this.cameraY = 0;
+    this.ropeNodes = [];
+    z.burialDragging = false;
+    z.burialClipY = undefined;
+    for (const [other, formation] of this.fleeing) {
+      other.formation = formation;
+      other.burialFleeing = false;
+      other.vx = 0;
+    }
+    this.fleeing.clear();
+    this.released.add(z);
+    return true;
+  }
+
   public update(dt: number, playerX: number, groundY: number, width: number, height: number, tikTokMode: boolean,
     zombies: Zombie[], atmosphere: AtmosphereSystem) {
     if (!this.target) {
       const nextIndex = this.lastTarget ? Math.max(0, zombies.indexOf(this.lastTarget) + 1) : 0;
       const ordered = [...zombies.slice(nextIndex), ...zombies.slice(0, nextIndex)];
-      this.target = zombies.find(z => !z.buried && !this.released.has(z)
+      this.target = zombies.find(z => !z.buried && !z.favorite && z.crowdMotion?.kind !== 'exit'
+        && !this.released.has(z)
         && z.viewerId === this.preferredViewerId)
-        ?? ordered.find(z => !z.buried && !this.released.has(z)) ?? null;
+        ?? ordered.find(z => !z.buried && !z.favorite && z.crowdMotion?.kind !== 'exit'
+          && !this.released.has(z)) ?? null;
       this.preferredViewerId = null;
       if (!this.target) {
         if (this.endPause === 0) soundEngine.playHeroCelebration();
