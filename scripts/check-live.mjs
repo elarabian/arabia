@@ -154,9 +154,12 @@ try {
     define: { 'import.meta.env': '{"VITE_TIKTOK_ENABLED":"true"}' },
     plugins: [{ name: 'assets', setup(b) {
       b.onResolve({ filter: /dialogueAssets$/ }, () => ({ path: 'dialogues', namespace: 'mock' }));
+      b.onResolve({ filter: /backgroundTracks$/ }, () => ({ path: 'tracks', namespace: 'mock' }));
       b.onResolve({ filter: /mp3\?url$/ }, () => ({ path: 'audio', namespace: 'mock' }));
       b.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({
-        contents: args.path === 'dialogues' ? 'export const dialogueAssets = {}' : 'export default "audio.mp3"',
+        contents: args.path === 'dialogues' ? 'export const dialogueAssets = {}'
+          : args.path === 'tracks' ? 'export const backgroundTracks = [{id:"background",file:"background.mp3",url:"audio.mp3"},{id:"background_2",file:"background_2.mp3",url:"audio2.mp3"}]; export const defaultBackgroundTrack="background"; export const isAvailableBackgroundTrack=id=>backgroundTracks.some(track=>track.id===id)'
+          : 'export default "audio.mp3"',
       }));
     } }],
   });
@@ -330,6 +333,12 @@ try {
   assert.ok(['camel-a','camel-b'].includes(camelGame.activeTarget?.viewerId),
     'the camel scene whips an eligible viewer while protecting the favorite');
   const whipSnapshot=parseControlSnapshot({scene:'WHIP'});
+  const secondMusic=parseControlSnapshot({scene:'WHIP',backgroundTrack:'background_2'});
+  applyControlSnapshot(camelGame,secondMusic);
+  assert.equal(captureControlSnapshot(camelGame,'DESERT','test').backgroundTrack,'background_2',
+    'the selected background track survives control synchronization');
+  assert.equal(parseControlSnapshot({backgroundTrack:'missing'})?.backgroundTrack,'background',
+    'a missing track safely falls back to the original music');
   applyControlSnapshot(camelGame,whipSnapshot);
   assert.equal(camelGame.camelSceneEnabled,false,'remote scene control leaves the camel scene');
   const pharaohGame=new GameEngine();pharaohGame.restartGame();
@@ -349,7 +358,12 @@ try {
   assert.ok(pharaohGame.zombies.zombies.some(z=>z.applauding),
     'viewer zombies clap while the hero and Pharaoh dance');
   assert.equal(soundEngine.attack,null,'the dance does not start whipping');
-  for(let frame=0;frame<60*7;frame++) pharaohGame.update(1/60);
+  for(let frame=0;frame<60*5.5;frame++) pharaohGame.update(1/60);
+  assert.ok(pharaohGame.pharaohHeroX<pharaohGame.playerX+10,
+    'the hero strikes Pharaoh with the staff before escaping');
+  assert.ok(pharaohGame.pharaohX>pharaohGame.pharaohHeroX+60,
+    'Pharaoh is within staff reach at the impact');
+  for(let frame=0;frame<60*1.5;frame++) pharaohGame.update(1/60);
   assert.equal(soundEngine.attack,null,'the chase and river crossing do not start whipping early');
   assert.ok(pharaohGame.pharaohHeroX>pharaohGame.playerX+30,
     'the hero crosses the parted river toward the far bank');

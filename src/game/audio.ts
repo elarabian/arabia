@@ -1,6 +1,6 @@
 import { dialogueAssets } from './dialogueAssets';
 import whipUrl from '../../sounds/whip.mp3?url';
-import backgroundUrl from '../../sounds/background.mp3?url';
+import { backgroundTracks, defaultBackgroundTrack, isAvailableBackgroundTrack } from './backgroundTracks';
 import heroUrl from '../../sounds/hero.mp3?url';
 import bombUrl from '../../sounds/bomb.mp3?url';
 import canlaninUrl from '../../sounds/canlanin.mp3?url';
@@ -70,6 +70,10 @@ class SoundEngine {
   public noahConstructionState: 'idle' | 'loading' | 'playing' | 'ended' = 'idle';
   private whipLoaded: boolean = false;
   private backgroundBuffer: AudioBuffer | null = null;
+  private backgroundTrack = defaultBackgroundTrack;
+  private backgroundLoad: Promise<void> | null = null;
+  private backgroundLoadId = '';
+  private backgroundLoadToken = 0;
   private backgroundSource: AudioBufferSourceNode | null = null;
   private backgroundStarted = false;
   private backgroundStartTime = 0;
@@ -203,7 +207,7 @@ class SoundEngine {
     const lines = [
       'Like gönderin bre kafirler!', 'Seni Kafir Tovbe Et.',
       'Ekrana tıkla yoksa kırbacı yersin!', 'Dans edin ki hediye göndersinler!',
-      'Haydi, daha iyi kıvır!', 'Saçının teli gözüktü!',
+      'Yanmaz kefen almazsin ha!', 'Sihirli terlik almazsin ha!', 'Saçının teli gözüktü!',
       'Kafir istemiyoruz.', 'Kafirlerrrrrrrr.', 'Sizi gidi Kafirlerrrrr.',
       'Petrol Kuyularimi Kuruttunuz', 'Hurma Bahcelerimi Yagmaladiniz',
       'Develerimi Kestiniz',
@@ -322,12 +326,7 @@ class SoundEngine {
             if (!response.ok) throw new Error('canlanin.mp3 yüklenemedi');
             this.noahBuffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
           }).catch(error => console.warn('Gemi inşaatı sesi yüklenemedi:', error)),
-          fetch(backgroundUrl).then(async response => {
-            if (!response.ok) throw new Error('background.mp3 yüklenemedi');
-            this.backgroundBuffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
-            this.bassBeats = findBassBeats(this.backgroundBuffer);
-            this.startBackgroundSource();
-          }).catch(error => console.warn('Arka plan müziği yüklenemedi:', error)),
+          this.loadBackgroundTrack().catch(error => console.warn('Arka plan müziği yüklenemedi:', error)),
           ...Object.entries(dialogueAssets).filter(([path]) => !['whip.mp3','background.mp3','hero.mp3','canlanin.mp3','dialogue-preview.mp3','voice-comparison.mp3','ahhh-preview.mp3'].includes(path.split('/').pop()!)).map(async ([path,url]) => {
           try {
             const response = await fetch(url);
@@ -394,6 +393,51 @@ class SoundEngine {
     return Math.max(0, Math.min(1, (this.audioTime - this.noahStartedAt) / this.noahDuration));
   }
 
+  private loadBackgroundTrack(): Promise<void> {
+    if (!this.ctx || this.backgroundBuffer) return Promise.resolve();
+    if (this.backgroundLoad && this.backgroundLoadId === this.backgroundTrack) return this.backgroundLoad;
+    const track = backgroundTracks.find(item => item.id === this.backgroundTrack);
+    if (!track) return Promise.reject(new Error(`Arka plan müziği bulunamadı: ${this.backgroundTrack}`));
+    const token = ++this.backgroundLoadToken;
+    this.backgroundLoadId = this.backgroundTrack;
+    const context = this.ctx;
+    const loading = fetch(track.url).then(async response => {
+      if (!response.ok) throw new Error(`${track.file} yüklenemedi`);
+      const buffer = await context.decodeAudioData(await response.arrayBuffer());
+      if (token !== this.backgroundLoadToken) return;
+      this.backgroundBuffer = buffer;
+      this.bassBeats = findBassBeats(buffer);
+      this.startBackgroundSource();
+    });
+    this.backgroundLoad = loading.finally(() => {
+      if (token === this.backgroundLoadToken) this.backgroundLoad = null;
+    });
+    return this.backgroundLoad;
+  }
+
+  public getBackgroundTrack() { return this.backgroundTrack; }
+
+  public setBackgroundTrack(id: string): boolean {
+    if (!isAvailableBackgroundTrack(id)) return false;
+    if (this.backgroundTrack === id) return true;
+    this.backgroundTrack = id;
+    this.backgroundLoadToken++;
+    if (this.backgroundSource) {
+      const previous = this.backgroundSource;
+      this.backgroundSource = null;
+      try { previous.stop(); } catch { /* Source may already have stopped. */ }
+    }
+    this.backgroundBuffer = null;
+    this.backgroundLoad = null;
+    this.backgroundLoadId = '';
+    this.bassBeats = [];
+    this.nextBassBeat = 0;
+    this.bassBeatLoop = 0;
+    this.bassPulse = 0;
+    if (this.ctx) void this.loadBackgroundTrack().catch(error => console.warn('Arka plan müziği yüklenemedi:', error));
+    return true;
+  }
+
   private startBackgroundSource() {
     if (!this.backgroundStarted || this.backgroundSource || !this.backgroundBuffer || !this.backgroundGain || !this.ctx) return;
     const source = this.ctx.createBufferSource();
@@ -418,12 +462,14 @@ class SoundEngine {
     this.initContext();
     this.backgroundStarted = true;
     this.startBackgroundSource();
+    if (!this.backgroundBuffer) void this.loadBackgroundTrack().catch(error => console.warn('Arka plan müziği yüklenemedi:', error));
   }
 
   public stopBackground() {
     this.backgroundStarted = false;
-    this.backgroundSource?.stop();
+    const previous = this.backgroundSource;
     this.backgroundSource = null;
+    try { previous?.stop(); } catch { /* Source may already have stopped. */ }
     this.bassPulse = 0;
   }
 

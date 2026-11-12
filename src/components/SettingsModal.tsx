@@ -1,6 +1,7 @@
 import React from 'react';
 import { GameEngine } from '../game/gameEngine';
 import { soundEngine } from '../game/audio';
+import { backgroundTracks } from '../game/backgroundTracks';
 import { Volume2, Shield, Eye, Flame, MousePointer, Bomb, Shovel } from 'lucide-react';
 import { featureFlags } from '../featureFlags';
 
@@ -46,6 +47,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSelectMap,
 }) => {
   const [vol, setVol] = React.useState(soundEngine.getVolume());
+  const [backgroundTrack, setBackgroundTrack] = React.useState(soundEngine.getBackgroundTrack());
   const [usernameDraft, setUsernameDraft] = React.useState(tiktokUsername);
   const [obsCopied, setObsCopied] = React.useState(false);
   const [publishedSiteDraft, setPublishedSiteDraft] = React.useState(publishedSiteUrl);
@@ -262,6 +264,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Audio */}
           <div className="space-y-3">
+            <div className="space-y-2 rounded-lg border border-amber-700/40 bg-amber-950/20 p-3">
+              <label htmlFor="background-track" className="block text-xs font-semibold text-amber-200">
+                Arka plan müziği
+              </label>
+              <select id="background-track" value={backgroundTrack}
+                onChange={event => {
+                  if (soundEngine.setBackgroundTrack(event.target.value)) {
+                    setBackgroundTrack(event.target.value);
+                    onRefresh();
+                  }
+                }}
+                className="w-full rounded-md border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
+                {[1, 2, 3, 4, 5].map(number => {
+                  const id = number === 1 ? 'background' : `background_${number}`;
+                  const track = backgroundTracks.find(item => item.id === id);
+                  return <option key={id} value={id} disabled={!track}>
+                    {track ? `${number}. ${track.file}` : `${number}. Dosya henüz eklenmedi`}
+                  </option>;
+                })}
+              </select>
+              <p className="text-[11px] text-stone-400">
+                Seçim oyuna hemen uygulanır ve yayın ekranına gönderilir.
+              </p>
+            </div>
             <div className="flex items-center justify-between">
               <label className="text-xs font-cinzel font-semibold uppercase tracking-wider text-stone-300 flex items-center gap-2">
                 <Volume2 className="w-4 h-4 text-amber-500" />

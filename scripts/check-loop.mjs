@@ -9,8 +9,9 @@ const dir=await mkdtemp(join(tmpdir(),'kirbac-loop-'));
 try {
  await build({stdin:{contents:`export {GameEngine} from './src/game/gameEngine'; export {soundEngine} from './src/game/audio';`,resolveDir:root},bundle:true,platform:'node',format:'esm',outfile:join(dir,'game.mjs'),define:{'import.meta.env':'{"VITE_TIKTOK_ENABLED":"false"}'},plugins:[{name:'assets',setup(b){
   b.onResolve({filter:/dialogueAssets$/},()=>({path:'dialogue-assets',namespace:'mock'}));
+  b.onResolve({filter:/backgroundTracks$/},()=>({path:'background-tracks',namespace:'mock'}));
   b.onResolve({filter:/mp3\?url$/},args=>({path:args.path.includes('hero.mp3')?'hero':args.path.includes('background.mp3')?'background':args.path.includes('bomb.mp3')?'bomb':'whip',namespace:'mock'}));
-  b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='dialogue-assets'?'export const dialogueAssets = {}':`export default "${args.path}.mp3"`}));
+  b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='dialogue-assets'?'export const dialogueAssets = {}':args.path==='background-tracks'?'export const backgroundTracks = [{id:"background",file:"background.mp3",url:"background.mp3"}]; export const defaultBackgroundTrack="background"; export const isAvailableBackgroundTrack=id=>id==="background"':`export default "${args.path}.mp3"`}));
  }}]});
  let ctx;let failAudio=false;let lastSource;let heroStarts=0;let backgroundStarts=0;let bombBoomStarts=0;let bombClipStarts=0;
  const pending=[];

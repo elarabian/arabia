@@ -1,5 +1,6 @@
 import type { GameEngine } from './game/gameEngine';
 import { soundEngine } from './game/audio';
+import { defaultBackgroundTrack, isAvailableBackgroundTrack } from './game/backgroundTracks';
 
 export const CONTROL_STORAGE_KEY = 'arabia.control.v1';
 export const CONTROL_CHANNEL = 'arabia.control.v1';
@@ -14,6 +15,7 @@ export interface ControlSnapshot {
   rapidWhip: boolean;
   rapidWhipSpeed: number;
   soundVolume: number;
+  backgroundTrack: string;
   screenShake: boolean;
   screenShakeStrength: number;
   bloodIntensity: number;
@@ -35,6 +37,8 @@ export function parseControlSnapshot(value: unknown): ControlSnapshot | null {
       rapidWhip: data.rapidWhip === true,
       rapidWhipSpeed: bounded(data.rapidWhipSpeed, 1, .1, 2),
       soundVolume: bounded(data.soundVolume, .8, 0, 1),
+      backgroundTrack: typeof data.backgroundTrack === 'string' && isAvailableBackgroundTrack(data.backgroundTrack)
+        ? data.backgroundTrack : defaultBackgroundTrack,
       screenShake: data.screenShake !== false,
       screenShakeStrength: bounded(data.screenShakeStrength, .2, 0, 1),
       bloodIntensity: bounded(data.bloodIntensity, 2, 0, 2),
@@ -62,6 +66,7 @@ export function captureControlSnapshot(
     rapidWhip: engine.rapidWhip,
     rapidWhipSpeed: engine.rapidWhipSpeed,
     soundVolume: engine.settings.soundVolume,
+    backgroundTrack: soundEngine.getBackgroundTrack(),
     screenShake: engine.settings.screenShake,
     screenShakeStrength: engine.settings.screenShakeStrength,
     bloodIntensity: engine.settings.bloodIntensity,
@@ -96,4 +101,5 @@ export function applyControlSnapshot(engine: GameEngine, snapshot: ControlSnapsh
   engine.settings.bloodIntensity = snapshot.bloodIntensity;
   engine.settings.rainEffect = snapshot.rainEffect;
   soundEngine.setVolume(snapshot.soundVolume);
+  soundEngine.setBackgroundTrack(snapshot.backgroundTrack);
 }

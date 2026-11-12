@@ -665,14 +665,22 @@ export class GameEngine {
       this.heroJump = Math.abs(Math.sin(t * 15)) * 12;
       this.handsRaised = .25;
       this.bodyLean = -8;
-    } else if (t < 13.6) {
-      const crossing = Math.max(0, (t - 11.5) / 2.1);
-      this.pharaohHeroX = this.playerX - 29 + Math.min(1, crossing) * 250;
-      this.pharaohX = 175 + Math.min(1, Math.max(0, (t - 11.5) / 2.1)) * 180;
-      this.heroVisualAngle = t < 11.5 ? Math.PI / 2 : 0;
-      this.heroJump = t < 11.5 ? 0 : Math.abs(Math.sin(t * 13)) * 9;
-      this.handsRaised = t < 13 ? 1 : .35;
-      this.bodyLean = t < 11.5 ? -3 : -8;
+    } else if (t < 11.65) {
+      const approach = Math.min(1, (t - 10.6) / .65);
+      this.pharaohHeroX = this.playerX - 29 + approach * 28;
+      this.pharaohX = 175 + approach * 180;
+      this.heroVisualAngle = 0;
+      this.heroJump = 0;
+      this.handsRaised = t >= 11.12 ? 1 : .65;
+      this.bodyLean = t >= 11.28 ? -12 : 2;
+    } else if (t < 14.25) {
+      const crossing = Math.min(1, (t - 11.65) / 2.6);
+      this.pharaohHeroX = this.playerX - 1 + crossing * 222;
+      this.pharaohX = 355;
+      this.heroVisualAngle = 0;
+      this.heroJump = Math.abs(Math.sin(t * 13)) * 9;
+      this.handsRaised = .35;
+      this.bodyLean = -8;
     } else {
       const transition = Math.min(1, Math.max(0, (t - 15.9) / 1.2));
       this.pharaohHeroX = this.playerX + 221 * (1 - transition);
@@ -706,7 +714,12 @@ export class GameEngine {
       this.atmosphere.addSonicCrack(this.playerX + 90, this.groundY - 65, '#9ef4ef');
       if (this.settings.screenShake) this.atmosphere.triggerScreenShake(9);
     }
-    if (previousTime < 14.6 && t >= 14.6) {
+    if (previousTime < 11.45 && t >= 11.45) {
+      this.atmosphere.addSonicCrack(355, this.groundY - 122, '#ffe3a2');
+      this.atmosphere.addSparks(355, this.groundY - 122, '#fbd88d', 16);
+      if (this.settings.screenShake) this.atmosphere.triggerScreenShake(8);
+    }
+    if (previousTime < 11.8 && t >= 11.8) {
       this.atmosphere.addSonicCrack(355, this.groundY - 12, '#b6f7ee');
       if (this.settings.screenShake) this.atmosphere.triggerScreenShake(6);
     }

@@ -130,8 +130,9 @@ export function drawPharaoh(ctx: CanvasRenderingContext2D, x: number, groundY: n
   const story = time - 4.8;
   if (story >= 11.7) return;
   const angry = story >= 3;
-  const sinking = story >= 9.8 ? Math.min(1, (story - 9.8) / 1.4) : 0;
-  const running = story >= 3 && story < 8.8;
+  const sinking = story >= 6.95 ? Math.min(1, (story - 6.95) / 1.9) : 0;
+  const running = story >= 3 && story < 6.55;
+  const stunned = story >= 6.65 && story < 7.35;
   const step = running ? Math.sin(time * 15) * 12 : 0;
   if (image?.naturalWidth) {
     ctx.save();
@@ -141,7 +142,8 @@ export function drawPharaoh(ctx: CanvasRenderingContext2D, x: number, groundY: n
     const bounce = running ? Math.abs(Math.sin(time * 15)) * 8
       : story >= 0 && story < 3 ? Math.abs(Math.sin(story * 7)) * 8 : 0;
     ctx.translate(x, groundY + sinking * 165 - bounce);
-    ctx.rotate(sinking * .28 + (running ? Math.sin(time * 15) * .045 : story < 3 ? Math.sin(time * 5) * .05 : 0));
+    ctx.rotate(sinking * .28 + (stunned ? Math.sin((story - 6.65) / .7 * Math.PI) * .25
+      : running ? Math.sin(time * 15) * .045 : story < 3 ? Math.sin(time * 5) * .05 : 0));
     ctx.globalAlpha = story > 11.1 ? Math.max(0, (11.7 - story) / .6) : 1;
     ctx.shadowColor = angry ? 'rgba(231,76,35,.8)' : 'rgba(40,26,13,.4)';
     ctx.shadowBlur = angry ? 16 : 7;
@@ -151,7 +153,10 @@ export function drawPharaoh(ctx: CanvasRenderingContext2D, x: number, groundY: n
       ctx.drawImage(image, -53, -159, 106, 159);
     }
     ctx.restore();
-    if (sinking > 0) drawDrowningBubbles(ctx, x, groundY, time);
+    if (sinking > 0) {
+      drawPharaohSinkWater(ctx, x, groundY, time, sinking);
+      drawDrowningBubbles(ctx, x, groundY, time);
+    }
     return;
   }
   ctx.save();
@@ -159,7 +164,7 @@ export function drawPharaoh(ctx: CanvasRenderingContext2D, x: number, groundY: n
     ctx.beginPath(); ctx.rect(-1000, -1000, 3000, groundY + 1000); ctx.clip();
   }
   ctx.translate(x, groundY + sinking * 155);
-  ctx.rotate(sinking * .28);
+  ctx.rotate(sinking * .28 + (stunned ? Math.sin((story - 6.65) / .7 * Math.PI) * .25 : 0));
   ctx.globalAlpha = story > 11.1 ? Math.max(0, (11.7 - story) / .6) : 1;
   ctx.fillStyle = 'rgba(66,35,20,.25)';
   ctx.beginPath(); ctx.ellipse(0, 2, 38, 8, 0, 0, Math.PI * 2); ctx.fill();
@@ -188,7 +193,26 @@ export function drawPharaoh(ctx: CanvasRenderingContext2D, x: number, groundY: n
   ctx.fillStyle = '#281b1c';
   ctx.beginPath(); ctx.ellipse(0, -86, angry ? 7 : 3, angry ? 5 : 2, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  if (sinking > 0) drawDrowningBubbles(ctx, x, groundY, time);
+  if (sinking > 0) {
+    drawPharaohSinkWater(ctx, x, groundY, time, sinking);
+    drawDrowningBubbles(ctx, x, groundY, time);
+  }
+}
+
+function drawPharaohSinkWater(ctx: CanvasRenderingContext2D, x: number,
+  groundY: number, time: number, sinking: number) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(6,43,67,.82)';
+  ctx.beginPath(); ctx.ellipse(x, groundY - 2, 34 + sinking * 15, 10 + sinking * 5,
+    0, 0, Math.PI * 2); ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    const radius = 26 + ((sinking * 34 + i * 13 + time * 11) % 43);
+    ctx.strokeStyle = `rgba(189,246,247,${.55 - i * .12})`;
+    ctx.lineWidth = 2.5 - i * .45;
+    ctx.beginPath(); ctx.ellipse(x, groundY - 3, radius, radius * .24,
+      0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 export function drawChaseDust(ctx: CanvasRenderingContext2D, heroX: number,
@@ -247,6 +271,36 @@ function drawFallbackCamel(ctx: CanvasRenderingContext2D, groundY: number, time:
 export function drawHeroStaff(ctx: CanvasRenderingContext2D, x: number, groundY: number,
   time: number) {
   if (time >= PHARAOH_INTRO_END) return;
+  if (time >= 11.08 && time < 11.85) {
+    const windup = Math.max(0, Math.min(1, (time - 11.08) / .25));
+    const strike = Math.max(0, Math.min(1, (time - 11.33) / .12));
+    const retract = Math.max(0, Math.min(1, (time - 11.58) / .27));
+    const reach = strike * (1 - retract);
+    const gripX = x + 13;
+    const gripY = groundY - 78;
+    const tipX = x + 34 + (355 - x - 34) * reach;
+    const tipY = groundY - 171 + 49 * reach + windup * (1 - reach) * -15;
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (strike > 0 && strike < 1) {
+      ctx.strokeStyle = 'rgba(255,227,160,.42)'; ctx.lineWidth = 18;
+      ctx.beginPath(); ctx.moveTo(gripX, gripY); ctx.lineTo(tipX - 22, tipY - 12); ctx.stroke();
+    }
+    ctx.strokeStyle = '#513119'; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(gripX, gripY); ctx.lineTo(tipX, tipY); ctx.stroke();
+    ctx.strokeStyle = '#c99448'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(gripX + 2, gripY - 2); ctx.lineTo(tipX + 2, tipY - 2); ctx.stroke();
+    ctx.fillStyle = '#f7d77c';
+    ctx.beginPath(); ctx.arc(tipX, tipY, 7, 0, Math.PI * 2); ctx.fill();
+    if (time >= 11.4 && time < 11.68) {
+      const pulse = (time - 11.4) / .28;
+      ctx.strokeStyle = `rgba(255,239,186,${1 - pulse})`;
+      ctx.lineWidth = 4 * (1 - pulse);
+      ctx.beginPath(); ctx.arc(355, groundY - 122, 8 + pulse * 30, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
   const story = time - 4.8;
   const raise = story >= 6.2 && story < 8.3;
   const dance = story >= 0 && story < 3 ? Math.sin(story * 8) * 10 : 0;
