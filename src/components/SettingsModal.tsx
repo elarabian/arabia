@@ -81,8 +81,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Content body */}
         <div className="p-6 overflow-y-auto space-y-6">
           <div className="space-y-2 rounded-lg border border-amber-700/50 bg-amber-950/20 p-3">
-            <div className="text-xs font-semibold text-amber-200">OBS oyun bağlantısı · 1080×1920</div>
-            <p className="text-[11px] text-stone-400">Bu bağlantı yalnızca oyunu gösterir; kontrol panelleri OBS görüntüsüne girmez.</p>
+            <div className="text-xs font-semibold text-amber-200">OBS / TikTok LIVE Studio oyun bağlantısı</div>
+            <p className="text-[11px] text-stone-400">Bu bağlantı yalnızca oyunu gösterir; kontrol paneli yayına girmez.</p>
+            <p className="text-[11px] leading-relaxed text-amber-100">
+              LIVE Studio: Kaynak ekle → Link/Bağlantı → bu adresi yapıştır → Özel çözünürlük: <strong>1080 genişlik × 1920 yükseklik</strong> → Kaynağı ekle → Ekrana sığdır. Eski yatay kaynağı kaldırın; “Uzat” görüntüyü bozar.
+            </p>
             <input type="text" readOnly value={obsUrl} aria-label="OBS oyun bağlantısı"
               onFocus={event => event.currentTarget.select()}
               className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-[11px] text-stone-200" />

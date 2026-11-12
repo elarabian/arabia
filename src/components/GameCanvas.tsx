@@ -3,8 +3,7 @@ import { BROADCAST } from '../game/broadcast';
 import { soundEngine } from '../game/audio';
 import { GameEngine } from '../game/gameEngine';
 
-const OBS_CANVAS_WIDTH = 1080;
-const OBS_CANVAS_HEIGHT = 1920;
+const MAX_CANVAS_PIXELS = 1080 * 1920;
 
 interface GameCanvasProps {
   engine: GameEngine;
@@ -30,8 +29,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
     const width = Math.max(1, rect.width);
     const height = Math.max(1, rect.height);
 
-    const outputWidth = OBS_CANVAS_WIDTH;
-    const outputHeight = OBS_CANVAS_HEIGHT;
+    const deviceScale = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
+    const pixelScale = Math.min(deviceScale, Math.sqrt(MAX_CANVAS_PIXELS / (width * height)));
+    const outputWidth = Math.max(1, Math.round(width * pixelScale));
+    const outputHeight = Math.max(1, Math.round(height * pixelScale));
     if (canvasRef.current.width !== outputWidth) canvasRef.current.width = outputWidth;
     if (canvasRef.current.height !== outputHeight) canvasRef.current.height = outputHeight;
     canvasRef.current.style.width = `${width}px`;

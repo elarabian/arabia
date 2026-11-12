@@ -41,6 +41,7 @@ export default function App() {
   const [liveMessage, setLiveMessage] = useState('');
   const [remoteStats, setRemoteStats] = useState({ zombies: 0, likes: 0 });
   const [gameOnline, setGameOnline] = useState(false);
+  const [studioAddress, setStudioAddress] = useState('');
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastGameStatusRef = useRef(0);
   const relayRevisionRef = useRef<string | null>(null);
@@ -94,6 +95,20 @@ export default function App() {
   const obsUrl = new URL('/game', window.location.origin);
   if (controlKey) obsUrl.searchParams.set('key', controlKey);
   const gameUrl = obsUrl.toString();
+  const studioUrl = new URL(gameUrl);
+  if (studioAddress) studioUrl.hostname = studioAddress;
+
+  useEffect(() => {
+    if (!controlMode || !['localhost', '127.0.0.1'].includes(window.location.hostname)) return;
+    let active = true;
+    void fetch('/api/local-address').then(response => response.ok ? response.json() : null)
+      .then((result: { address?: string } | null) => {
+        if (active && result?.address && /^\d{1,3}(?:\.\d{1,3}){3}$/.test(result.address)) {
+          setStudioAddress(result.address);
+        }
+      }).catch(() => { /* The local preview link remains available. */ });
+    return () => { active = false; };
+  }, [controlMode]);
 
   const relayPost = useCallback((data: unknown) => {
     void fetch('/api/control', {
@@ -365,7 +380,7 @@ export default function App() {
   return (
     <div className={`app-layout relative w-screen h-[100dvh] bg-[#05070a] text-slate-100 font-body select-none ${obsMode ? 'obs-mode' : 'control-mode'}`}>
       {obsMode && (
-      <main className="game-viewport" aria-label="1080×1920 oyun görüntüsü">
+      <main className="game-viewport" aria-label="Tam ekran oyun görüntüsü">
       {/* 1. Title Menu Screen */}
       {gameState === 'TITLE' && (
         <div
@@ -587,7 +602,7 @@ export default function App() {
         <span className={gameOnline ? 'text-emerald-300' : 'text-amber-300'}>
           Oyun: {gameOnline ? 'bağlı' : 'bağlantı bekleniyor'}
         </span>
-        <a href={gameUrl} target="_blank" rel="noreferrer">Oyun ekranını aç</a>
+        <a href={gameUrl} target="_blank" rel="noreferrer">Oyunu tarayıcıda önizle</a>
         <button type="button" onClick={() => sendCommand('pause')}>
           {isPaused ? 'Devam et' : 'Duraklat'}
         </button>
@@ -717,7 +732,7 @@ export default function App() {
           onTikTokUsernameChange={changeTikTokUsername}
           currentMap={currentMap}
           onSelectMap={handleSelectMap}
-          obsUrl={gameUrl}
+          obsUrl={studioUrl.toString()}
         />
         </aside>
       )}

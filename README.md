@@ -8,9 +8,11 @@ Node.js 22 veya üzerini kullanın. `npm install` ardından `npm run dev` komutu
 
 TikTok LIVE bağlantısı oyun sayfası açılınca `ersanyakit` hesabı için otomatik başlar. Yayıncı adını kontrol sayfasından değiştirebilirsiniz; seçim tarayıcının yerel depolamasında saklanır. `npm run dev`, TikTok API rotasını yerelde de çalıştırır. Bağlantı kurulmazsa neden kontrol sayfasında görünür ve uygulama artan aralıklarla yeniden dener. **Bağlan** düğmesi elle hemen yeniden denemek veya yeni bir yayıncı seçmek içindir.
 
-`/game` sayfasında yalnızca oyun bulunur; `/control` sayfasında sahne, TikTok ve görüntü ayarları bulunur. Kontrol sayfasındaki **Oyun ekranını aç** düğmesi oyunu ayrı sekmede açar. Oyun canvas'ının çizim çözünürlüğü 1080×1920'dir; görüntü ekranın sol kenarına sabitlenir ve 9:16 oranını korur.
+`/game` sayfasında yalnızca oyun bulunur; `/control` sayfasında sahne, TikTok ve görüntü ayarları bulunur. Kontrol sayfasındaki **Oyun ekranını aç** düğmesi oyunu ayrı sekmede açar. Oyun pencerenin tamamını doldurur ve boyut değişince kendini yeniden ölçer.
 
-OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın ve kaynak boyutunu **1080×1920** ayarlayın. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
+OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın. Dikey yayın için kaynak boyutunu **1080×1920** ayarlayın; farklı boyutlarda da oyun tüm alanı doldurur. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
+
+TikTok LIVE Studio'da eski yatay ekran/pencere yakalama kaynağını kaldırın. Yeni **Link/Bağlantı** kaynağına `/game` adresini ekleyin, **Özel çözünürlük** seçeneğini açıp genişliği **1080**, yüksekliği **1920** yapın. Kaynağı sahneye sığdırın; **Uzat** seçeneği yatay görüntüyü dikey yönde bozacaktır.
 
 ## Vercel
 
