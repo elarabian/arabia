@@ -1,0 +1,95 @@
+{
+  "status": "edited_requires_listening_review",
+  "direction": "Original adult female character voice. Light, high register with natural resonance. Comically exaggerated, briefly pained exclamations followed by relieved, playful speech. Clearly intelligible Turkish; use English pronunciation for come to Dubai. Natural vocal acting, not a pitch-shifted robotic voice. Express elongated ah sounds as voiced exclamations. No music, no sound effects, no reverb; no real-person voice imitation.",
+  "format": {
+    "codec": "mp3",
+    "sample_rate": 44100,
+    "bitrate_kbps": 192,
+    "channels": 1
+  },
+  "quality_checks": [
+    "Every file decodes and contains audible speech",
+    "Correct spoken text and clear pronunciation",
+    "No clipping or abruptly cut syllables",
+    "Consistent perceived loudness across clips",
+    "Short clean lead-in and tail; preserve natural breaths",
+    "Provide a separate combined listening preview after generation"
+  ],
+  "clips": [
+    {
+      "filename": "ahhh_elhamdulillah.mp3",
+      "text": "Ahhh... elhamdülillah!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.771,
+      "peak_db": -4.5,
+      "original_sha256": "99038a840469bbf986a7482ade041a69f17bd9463ffcc4b22c72a7bd0aff9aa8"
+    },
+    {
+      "filename": "ahhh_yandim_habibi.mp3",
+      "text": "Ahhh! Yandım, habibi!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.992,
+      "peak_db": -4.2,
+      "original_sha256": "e3e751fff836b462afd28bf6123efa44e2bcb46416054dc6dce822dc77748a27"
+    },
+    {
+      "filename": "habibi_yavas.mp3",
+      "text": "Habibi... yavaş!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.973,
+      "peak_db": -4.4,
+      "original_sha256": "d0bf4c354f2dfe43d1bbb4a5286c3b6ae81e53677fdc9ab07a1a3030253109f9"
+    },
+    {
+      "filename": "ahhh_uhhh.mp3",
+      "text": "Ahhh... uhhh... ahhhh!",
+      "status": "edited_requires_listening_review",
+      "duration": 2.562,
+      "peak_db": -4.6,
+      "original_sha256": "3feb9f8d3be92fde2628ab5151143221014691a130b4288a53e31d9f251b09f5"
+    },
+    {
+      "filename": "habibi_come_to_dubai.mp3",
+      "text": "Habibi, come to Dubayiii!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.61,
+      "peak_db": -2.4,
+      "original_sha256": "01ae1123c1e965031437d6609e304b959637708bc2b1ba4e6499b40844cb7a8b"
+    },
+    {
+      "filename": "habibi_sukran.mp3",
+      "text": "Habibi, şükran!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.931,
+      "peak_db": -4.0,
+      "original_sha256": "501fc9407cab4db998643a322d83c8a40b92f2bc654d1d4f1ff52e2129cf1650"
+    },
+    {
+      "filename": "yarabbi_sukran.mp3",
+      "text": "Ya Rabbi, şükran!",
+      "status": "edited_requires_listening_review",
+      "duration": 2.283,
+      "peak_db": -4.1,
+      "original_sha256": "5203a318d9c332dfbcf27c1a9c965162eff91413e83f898fa87dee168f779762"
+    },
+    {
+      "filename": "oh_sukur_allah.mp3",
+      "text": "Oh, şükür Allah!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.946,
+      "peak_db": -4.2,
+      "original_sha256": "6a1fbd4f7591ef0d11c630fb5e4a01cc06cd7d2a71a3a84dc6218a0f02fe3dcf"
+    },
+    {
+      "filename": "elhamdulillah.mp3",
+      "text": "Elhamdülillah!",
+      "status": "edited_requires_listening_review",
+      "duration": 1.77,
+      "peak_db": -4.6,
+      "original_sha256": "f520f28f609a5ce9f9f7a97e4bf4c177a7aa07f93e09c5c61c857599714b464d"
+    }
+  ],
+  "generator": "edge-tts; female neural voice, adjusted speech rate and pitch; no acted-emotion guarantee",
+  "postprocessing": "Removed mispronounced ah interjections. Sustained only the open /a/ nucleus from yandım using pitch-synchronous overlap-add; no ey transition. Short gaps, varied tempo, normalized output. Offline edit, not newly acted speech.",
+  "original_directory": "original-dialogues"
+}
