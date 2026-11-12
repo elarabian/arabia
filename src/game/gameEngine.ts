@@ -8,6 +8,7 @@ import { ZombieManager } from './zombies';
 import { AtmosphereSystem, backgroundImageRect } from './atmosphere';
 import { soundEngine } from './audio';
 import { BurialScene } from './burialScene';
+import { drawCamel } from './camel';
 import { WhipType, Zombie, PlayerStats, GameSettings } from './types';
 import { featureFlags } from '../featureFlags';
 import { parseLiveAction, type LiveAction } from '../live/commands';
@@ -63,6 +64,14 @@ export class GameEngine {
   private liveHandles = new Map<string, string>();
   private viewerSupport = new Map<string, { likes: number; gifts: number }>();
   public tasbihMode = false;
+  public camelSceneEnabled = false;
+  public camelSceneTime = 0;
+  private camelX = -170;
+  private camelHeroX = -185;
+  private camelHeroY = 0;
+  private camelLandingDone = false;
+  private upcomingCamelTarget: Zombie | null = null;
+  private lastCamelTargetId: string | null = null;
   private heroLine: { text: string; until: number } | null = null;
   private queuedTarget: Zombie | null = null;
   private activeStrikeAutomatic = false;
@@ -208,6 +217,7 @@ export class GameEngine {
     if (this.tasbihMode === enabled) return;
     this.tasbihMode = enabled;
     if (enabled) {
+      this.camelSceneEnabled = false;
       this.bombSceneEnabled = false;
       this.burialSceneEnabled = false;
       this.hellSceneEnabled = false;
@@ -223,6 +233,7 @@ export class GameEngine {
   }
 
   public setBombScene(enabled: boolean) {
+    if (enabled) this.camelSceneEnabled = false;
     if (enabled) this.tasbihMode = false;
     if (this.bombSceneEnabled === enabled && !this.captureSceneEnabled) return;
     this.bombSceneEnabled = enabled;
@@ -237,6 +248,7 @@ export class GameEngine {
   }
 
   public setBurialScene(enabled: boolean) {
+    if (enabled) this.camelSceneEnabled = false;
     if (enabled) this.tasbihMode = false;
     if (this.burialSceneEnabled === enabled && !this.bombSceneEnabled && !this.hellSceneEnabled) return;
     this.burialSceneEnabled = enabled;
@@ -252,6 +264,7 @@ export class GameEngine {
   }
 
   public setHellScene(enabled: boolean) {
+    if (enabled) this.camelSceneEnabled = false;
     if (enabled) this.tasbihMode = false;
     if (this.hellSceneEnabled === enabled && !this.bombSceneEnabled && !this.burialSceneEnabled) return;
     this.hellSceneEnabled = enabled;
@@ -264,6 +277,29 @@ export class GameEngine {
     this.queuedTarget = null;
     this.resetBombScene();
     this.burialScene.reset(this.zombies.zombies);
+  }
+
+  public setCamelScene(enabled: boolean) {
+    if (this.camelSceneEnabled === enabled) return;
+    this.camelSceneEnabled = enabled;
+    this.camelSceneTime = 0;
+    this.upcomingCamelTarget = null;
+    this.lastCamelTargetId = null;
+    this.camelLandingDone = false;
+    soundEngine.stopWhip();
+    this.queuedStrike = null;
+    this.queuedTarget = null;
+    this.activeTarget = null;
+    if (!enabled) return;
+    this.tasbihMode = false;
+    this.bombSceneEnabled = false;
+    this.burialSceneEnabled = false;
+    this.hellSceneEnabled = false;
+    this.burialScene.reset(this.zombies.zombies);
+    this.resetBombScene();
+    this.camelX = -170;
+    this.camelHeroX = -185;
+    this.camelHeroY = this.groundY - 100;
   }
 
   private resetBombScene() {
@@ -353,6 +389,49 @@ export class GameEngine {
     }
     this.resetBombScene();
     this.burialScene.reset(this.zombies.zombies);
+    if (this.camelSceneEnabled) {
+      this.camelSceneTime = 0;
+      this.camelLandingDone = false;
+      this.camelX = -170;
+      this.camelHeroX = -185;
+      this.camelHeroY = this.groundY - 100;
+      this.upcomingCamelTarget = null;
+      this.lastCamelTargetId = null;
+    }
+  }
+
+  private updateCamelIntro(dt: number) {
+    this.camelSceneTime = Math.min(5.7, this.camelSceneTime + dt);
+    const t = this.camelSceneTime;
+    const arrivalX = this.playerX + 70;
+    if (t < 3.5) {
+      this.camelX = -170 + (arrivalX + 170) * (t / 3.5);
+      this.camelHeroX = this.camelX - 12;
+      this.camelHeroY = this.groundY - 100 + Math.sin(t * 16) * 5;
+      this.heroVisualAngle = .15;
+      this.bodyLean = -6;
+    } else {
+      const fall = Math.min(1, (t - 3.5) / 1.2);
+      this.camelX = arrivalX + (t - 3.5) * 260;
+      this.camelHeroX = arrivalX - 12 + (this.playerX - arrivalX + 12) * fall;
+      this.camelHeroY = this.groundY - 100 * (1 - fall) - Math.sin(Math.PI * fall) * 48;
+      this.heroVisualAngle = fall < 1 ? fall * Math.PI * 2 : Math.PI / 2;
+      this.bodyLean = fall < 1 ? Math.sin(fall * Math.PI * 2) * 12 : 0;
+    }
+    this.heroJump = 0;
+    this.handsRaised = t < 3.5 ? .45 : t < 4.7 ? 1 : 0;
+    const shoulder = heroShoulder(this.camelHeroX, this.camelHeroY, this.heroVisualAngle, this.bodyLean);
+    this.arm = solveArm(shoulder, { x: shoulder.x + 28, y: shoulder.y + 18 },
+      { x: shoulder.x + 15, y: shoulder.y + 6 }, HERO_SCALE);
+    this.whip.updateHandle(this.arm.wrist.x, this.arm.wrist.y, this.heroVisualAngle);
+    if (t >= 4.7 && !this.camelLandingDone) {
+      this.camelLandingDone = true;
+      this.atmosphere.addImpactDust(this.playerX, this.groundY, 1.8, 400);
+      if (this.settings.screenShake) this.atmosphere.triggerScreenShake(7);
+      for (const zombie of this.zombies.zombies) {
+        if (!zombie.buried && zombie.crowdMotion?.kind !== 'exit') zombie.confusedTimer = 2.4;
+      }
+    }
   }
 
   public update(dt: number) {
@@ -362,7 +441,7 @@ export class GameEngine {
     if (!this.currentChat && this.chatQueue.length) {
       this.currentChat = { ...this.chatQueue.shift()!, until: soundEngine.audioTime + 3.4 };
     }
-    if (!this.tasbihMode) this.processLiveTasks();
+    if (!this.tasbihMode && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)) this.processLiveTasks();
     if (this.liveWhipBoostTime > 0) {
       this.liveWhipBoostTime = Math.max(0, this.liveWhipBoostTime - dt);
       if (this.liveWhipBoostTime === 0) this.liveWhipSpeed = 1;
@@ -370,6 +449,11 @@ export class GameEngine {
 
     // Advance the visible dance pose before aiming so collision and rendering agree.
     this.zombies.update(dt, this.playerX, this.groundY, this.atmosphere, () => {});
+    if (this.camelSceneEnabled && this.camelSceneTime < 5.7) {
+      this.updateCamelIntro(dt);
+      this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
+      return;
+    }
     if (this.tasbihMode) {
       this.heroVisualAngle = Math.PI / 2;
       this.handsRaised = .3 + Math.sin(soundEngine.audioTime * 5) * .12;
@@ -415,7 +499,7 @@ export class GameEngine {
     const turnTarget = currentContact ?? (nextDancer ? this.zombies.getHitTargets(nextDancer)[1] : target);
     const desiredAngle = turnTarget ? Math.atan2(turnTarget.y-(this.groundY-65*HERO_SCALE),turnTarget.x-this.playerX) : this.aimAngle;
     let aligned: boolean;
-    if (this.isRapidWhipActive && this.queuedStrike?.automatic) {
+    if ((this.isRapidWhipActive || this.camelSceneEnabled) && this.queuedStrike?.automatic) {
       this.turning.angle = desiredAngle;
       this.turning.velocity = 0;
       aligned = true;
@@ -427,10 +511,14 @@ export class GameEngine {
     if (whipTarget) this.whip.aimAt(whipTarget.x,whipTarget.y);
     if (this.queuedStrike && target && aligned) {
       if (this.whip.triggerSnapImpulse(target.x,target.y,this.queuedStrike.power,
-        this.isRapidWhipActive || !this.queuedStrike.automatic,
+        this.isRapidWhipActive || this.camelSceneEnabled || !this.queuedStrike.automatic,
         this.effectiveRapidWhipSpeed)) {
         this.activeStrikeAutomatic = this.queuedStrike.automatic;
         this.activeTarget = this.queuedTarget;
+        if (this.camelSceneEnabled && this.activeTarget) {
+          this.lastCamelTargetId = this.activeTarget.id;
+          this.upcomingCamelTarget = null;
+        }
         this.queuedTarget = null;
         if (this.queuedStrike.automatic) this.autoIndex++;
         if (this.activeTarget) this.activeTarget.lastWhippedAt = soundEngine.audioTime;
@@ -455,7 +543,7 @@ export class GameEngine {
       : Math.min(1,(age-attack!.peak)/.45);
     const motion = attack ? strikeMotion(age,attack.peak,this.whip.strikePower,windup)
       : {extension:24,lift:0,lean:0};
-    const rapidStrike = this.isRapidWhipActive && attack && attack.prepStart === undefined
+    const rapidStrike = (this.isRapidWhipActive || this.camelSceneEnabled) && attack && attack.prepStart === undefined
       && age >= 0 && age < attack.duration;
     const rapidPhase = rapidStrike ? age / attack.duration : 0;
     if (rapidStrike) {
@@ -959,7 +1047,8 @@ export class GameEngine {
   }
 
   public snapAt(x: number, y: number, power = 1.25) {
-    if (this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode || this.isGameOver) return false;
+    if (this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode
+      || (this.camelSceneEnabled && this.camelSceneTime < 5.7) || this.isGameOver) return false;
     const closest = this.zombies.zombies.filter(z => !z.favorite && !z.buried && z.crowdMotion?.kind !== 'exit').flatMap(z =>
       this.zombies.getHitTargets(z).map(target => ({ z, target,
         distance: Math.hypot(target.x-x,target.y-y) - target.r }))
@@ -978,12 +1067,18 @@ export class GameEngine {
   private nextWhipTarget() {
     const crowd = this.zombies.zombies.filter(z => !z.buried && !z.favorite
       && z.crowdMotion?.kind !== 'exit' && z.crowdMotion?.kind !== 'enter' && !z.burialDragging);
+    const eligible = crowd.filter(z => z.lastWhippedAt === undefined
+      || soundEngine.audioTime - z.lastWhippedAt >= 1 + Math.min(14, (z.likes ?? 0) / 7));
+    if (this.camelSceneEnabled) {
+      if (this.upcomingCamelTarget && eligible.includes(this.upcomingCamelTarget)) return this.upcomingCamelTarget;
+      const alternatives = eligible.filter(z => z.id !== this.lastCamelTargetId);
+      const pool = alternatives.length ? alternatives : eligible;
+      this.upcomingCamelTarget = pool[Math.floor(Math.random() * pool.length)] ?? null;
+      return this.upcomingCamelTarget;
+    }
     for (let step = 0; step < crowd.length; step++) {
       const z = crowd[(this.autoIndex + step) % crowd.length];
-      const cooldown = 1 + Math.min(14, (z.likes ?? 0) / 7);
-      if (z.lastWhippedAt === undefined || soundEngine.audioTime - z.lastWhippedAt >= cooldown) {
-        return z;
-      }
+      if (eligible.includes(z)) return z;
     }
     return null;
   }
@@ -1117,6 +1212,7 @@ export class GameEngine {
    * Draw Hunter Character
    */
   public drawHunter(ctx: CanvasRenderingContext2D) {
+    const camelIntro = this.camelSceneEnabled && this.camelSceneTime < 5.7;
     const turnStrength = Math.min(1,Math.abs(this.turning.velocity)/1.5);
     const burialAction = this.burialScene.actionTime;
     const burialStep = this.captureSceneEnabled
@@ -1124,10 +1220,10 @@ export class GameEngine {
         : this.burialScene.walking ? Math.sin(this.burialScene.walkDistance / 19) * 12
           : burialAction >= this.burialScene.walkEnd && burialAction < this.burialScene.buryEnd
             ? Math.sin(burialAction * 12) * 3 : 0 : 0;
-    drawHero3D(ctx,this.captureSceneEnabled ? this.burialScene.heroX || this.playerX
+    drawHero3D(ctx,camelIntro ? this.camelHeroX : this.captureSceneEnabled ? this.burialScene.heroX || this.playerX
       : this.bombSceneEnabled ? this.bombHeroX : this.playerX,
-      (this.bombSceneEnabled ? this.bombHeroY : this.captureSceneEnabled ? this.burialScene.heroY || this.groundY : this.groundY)-this.heroJump,this.heroVisualAngle,this.arm,
-      this.captureSceneEnabled ? burialStep : this.bombSceneEnabled ? this.bombDanceStarted ? Math.sin((this.bombSceneTime - 7) * 9) * 8
+      (camelIntro ? this.camelHeroY : this.bombSceneEnabled ? this.bombHeroY : this.captureSceneEnabled ? this.burialScene.heroY || this.groundY : this.groundY)-this.heroJump,this.heroVisualAngle,this.arm,
+      camelIntro ? Math.sin(this.camelSceneTime * 16) * 9 : this.captureSceneEnabled ? burialStep : this.bombSceneEnabled ? this.bombDanceStarted ? Math.sin((this.bombSceneTime - 7) * 9) * 8
         : Math.sin(this.bombSceneTime * 20) * (this.bombSceneTime < 2.58 || (this.bombSceneTime >= 5 && this.bombSceneTime < 7) ? 15 : 0)
         : this.isRapidWhipActive ? this.rapidDanceStep : Math.sin(this.turning.stepPhase)*3*turnStrength,
       this.bodyLean,this.handsRaised,this.bombSceneEnabled ? this.bombHeroScale : HERO_SCALE,
@@ -1363,6 +1459,9 @@ export class GameEngine {
 
     // 3. Draw Zombies
     this.zombies.drawZombies(ctx, this.groundY);
+    if (this.camelSceneEnabled && this.camelSceneTime < 5.7 && this.camelX < this.width + 170) {
+      drawCamel(ctx, this.camelX, this.groundY, this.camelSceneTime);
+    }
 
     // 4. Draw Hunter
     this.drawHunter(ctx);
@@ -1373,7 +1472,7 @@ export class GameEngine {
     // 5. Draw Whip
     if (this.captureSceneEnabled) this.burialScene.drawForeground(ctx, this.arm.wrist.x, this.arm.wrist.y);
     else if (this.bombSceneEnabled) this.drawBombBlast(ctx);
-    else if (!this.tasbihMode) {
+    else if (!this.tasbihMode && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)) {
       this.whip.draw(ctx, time);
       this.drawGrip(ctx);
     }

@@ -9,7 +9,7 @@ import { featureFlags } from './featureFlags';
 import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
-import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot } from 'lucide-react';
+import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
@@ -99,6 +99,7 @@ export default function App() {
       if (scene === 'BOMB') engineRef.current.setBombScene(true);
       else if (scene === 'BURIAL') engineRef.current.setBurialScene(true);
       else if (scene === 'HELL') engineRef.current.setHellScene(true);
+      else if (scene === 'CAMEL') engineRef.current.setCamelScene(true);
       else if (scene === 'TASBIH') engineRef.current.setTasbihMode(true);
     }
     if (savedControl) applyControlSnapshot(engineRef.current, savedControl);
@@ -495,12 +496,14 @@ export default function App() {
     publishControl({ rapidWhipSpeed: engine.rapidWhipSpeed });
   };
 
-  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH') => {
+  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL') => {
     engine.cancelLiveTasks();
     engine.setTasbihMode(scene === 'TASBIH');
-    if (scene === 'BOMB') engine.setBombScene(true);
+    if (scene === 'CAMEL') engine.setCamelScene(true);
+    else if (scene === 'BOMB') engine.setBombScene(true);
     else if (scene === 'BURIAL') engine.setBurialScene(true);
     else if (scene === 'HELL') engine.setHellScene(true);
+    else if (engine.camelSceneEnabled) engine.setCamelScene(false);
     else if (engine.hellSceneEnabled) engine.setHellScene(false);
     else if (engine.burialSceneEnabled) engine.setBurialScene(false);
     else engine.setBombScene(false);
@@ -772,9 +775,9 @@ export default function App() {
             <button
               type="button"
               aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode}
+              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled}
               onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled
                 ? 'border-amber-500 bg-amber-600 text-stone-950'
                 : 'border-stone-700 bg-stone-900 text-stone-300'}`}
             >
@@ -814,13 +817,24 @@ export default function App() {
             </button>
             <button type="button" aria-label="Tesbih sahnesi" aria-pressed={engine.tasbihMode}
               onClick={() => changeScene('TASBIH')}
-              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.tasbihMode
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.tasbihMode
                 ? 'border-yellow-300 bg-yellow-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
               <CircleDot className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Tesbih · Tövbe estağfurullah</span>
+              <span className="rapid-whip-copy">Tesbih</span>
+            </button>
+            <button type="button" aria-label="Deve sahnesi" aria-pressed={engine.camelSceneEnabled}
+              onClick={() => changeScene('CAMEL')}
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.camelSceneEnabled
+                ? 'border-amber-300 bg-amber-800 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Mountain className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Deve</span>
             </button>
           </div>
-          {engine.tasbihMode ? (
+          {engine.camelSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-amber-300">
+              <Mountain className="h-4 w-4" /><span className="text-xs font-bold">Deve Sahnesi</span>
+            </div>
+          ) : engine.tasbihMode ? (
             <div className="rapid-whip-copy flex items-center gap-2 text-yellow-300">
               <CircleDot className="h-4 w-4" /><span className="text-xs font-bold">Tesbih Sahnesi</span>
             </div>

@@ -43,6 +43,7 @@ export interface Zombie {
   likes?: number;
   gifts?: number;
   favorite?: boolean;
+  confusedTimer?: number;
   lastWhippedAt?: number;
   crowdMotion?: { kind: 'enter' | 'reflow' | 'exit'; startX: number; startY: number;
     endX?: number; endY?: number; elapsed: number; duration: number };

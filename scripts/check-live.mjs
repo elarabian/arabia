@@ -149,7 +149,7 @@ const root = new URL('../', import.meta.url).pathname;
 const dir = await mkdtemp(join(tmpdir(), 'kirbac-live-'));
 try {
   await build({
-    stdin: { contents: "export { GameEngine } from './src/game/gameEngine'; export { soundEngine } from './src/game/audio'; export { parseLiveAction } from './src/live/commands';", resolveDir: root },
+    stdin: { contents: "export { GameEngine } from './src/game/gameEngine'; export { soundEngine } from './src/game/audio'; export { parseLiveAction } from './src/live/commands'; export { captureControlSnapshot, applyControlSnapshot, parseControlSnapshot } from './src/controlSync';", resolveDir: root },
     bundle: true, platform: 'node', format: 'esm', outfile: join(dir, 'game.mjs'),
     define: { 'import.meta.env': '{"VITE_TIKTOK_ENABLED":"true"}' },
     plugins: [{ name: 'assets', setup(b) {
@@ -160,7 +160,8 @@ try {
       }));
     } }],
   });
-  const { GameEngine, soundEngine, parseLiveAction } = await import(pathToFileURL(join(dir, 'game.mjs')).href);
+  const { GameEngine, soundEngine, parseLiveAction, captureControlSnapshot,
+    applyControlSnapshot, parseControlSnapshot } = await import(pathToFileURL(join(dir, 'game.mjs')).href);
   const viewers = [{ id: '42', name: 'Natur Reiki', handle: 'naturreiki' },
     { id: '43', name: 'Beyzagust', handle: 'beyzagust34' }];
   assert.deepEqual(parseLiveAction('Lütfen kırbaç Natur Reiki, hadi!', '43', viewers),
@@ -309,6 +310,29 @@ try {
   assert.equal(queuedGame.hellSceneEnabled,true,'the next viewer task starts after the first burial');
   assert.equal(queuedGame.burialScene.target?.viewerId,'43',
     'the queued task catches the named second viewer');
+  const camelGame = new GameEngine();camelGame.restartGame();
+  const priorWindow=globalThis.window;
+  globalThis.window={};
+  camelGame.addLiveViewer('camel-a','A');camelGame.addLiveViewer('camel-b','B');
+  camelGame.addLiveViewer('camel-c','C');
+  camelGame.zombies.zombies.find(z=>z.viewerId==='camel-c').favorite=true;
+  camelGame.setCamelScene(true);
+  assert.equal(captureControlSnapshot(camelGame,'DESERT','test').scene,'CAMEL');
+  assert.equal(parseControlSnapshot({scene:'CAMEL'})?.scene,'CAMEL',
+    'a published camel scene is accepted by the game browser');
+  for(let frame=0;frame<60*5;frame++) camelGame.update(1/60);
+  assert.equal(soundEngine.attack,null,'Harami stays on the camel until the landing');
+  assert.ok(camelGame.zombies.zombies.every(z=>(z.confusedTimer??0)>0),
+    'the landing briefly confuses the whole audience');
+  for(let frame=0;frame<90;frame++) camelGame.update(1/60);
+  assert.ok(camelGame.camelSceneTime>=5.7 && soundEngine.attack,
+    'random whipping begins after the camel exits');
+  assert.ok(['camel-a','camel-b'].includes(camelGame.activeTarget?.viewerId),
+    'the camel scene whips an eligible viewer while protecting the favorite');
+  const whipSnapshot=parseControlSnapshot({scene:'WHIP'});
+  applyControlSnapshot(camelGame,whipSnapshot);
+  assert.equal(camelGame.camelSceneEnabled,false,'remote scene control leaves the camel scene');
+  if(priorWindow===undefined)delete globalThis.window;else globalThis.window=priorWindow;
   console.log('PASS TikTok JOIN/LIKE/CHAT/GIFT events, named targets, queued scenes, rescue, RIP stones and whip boost.');
 } finally {
   await rm(dir, { recursive: true, force: true });

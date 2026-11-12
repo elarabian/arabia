@@ -121,6 +121,7 @@ export class ZombieManager {
     const departed = new Set<Zombie>();
     // Each dancer owns a permanent ring slot. No attraction to the player's feet.
     for (const z of this.zombies) {
+      z.confusedTimer = Math.max(0, (z.confusedTimer ?? 0) - dt);
       z.speechCooldown = Math.max(0, z.speechCooldown - dt);
       if (z.speechBubble) {
         z.speechBubble.timer -= dt;
@@ -140,10 +141,12 @@ export class ZombieManager {
         const { angle, radiusX, radiusY } = z.formation;
         const dance = z.bowTimer <= 0 && z.blastAngle === undefined;
         const step = dance ? Math.sin(z.walkCycle) : 0;
-        const slotX = playerX + Math.cos(angle) * radiusX + step * 4 * z.scale;
+        const confusion = z.confusedTimer > 0 ? Math.min(1, z.confusedTimer) : 0;
+        const slotX = playerX + Math.cos(angle) * radiusX + step * 4 * z.scale
+          + Math.sin(z.walkCycle * 3 + angle) * 15 * confusion;
         // Center the circle on the player's body, accounting for each sprite's height.
         const slotY = groundY - 55 + Math.sin(angle) * radiusY + 55 * z.scale
-          - Math.abs(step) * 5 * z.scale;
+          - Math.abs(step) * 5 * z.scale + Math.cos(z.walkCycle * 2 + angle) * 5 * confusion;
         if (z.crowdMotion && z.crowdMotion.kind !== 'exit') {
           z.crowdMotion.elapsed += dt;
           const t = Math.min(1, z.crowdMotion.elapsed / z.crowdMotion.duration);
@@ -372,6 +375,12 @@ export class ZombieManager {
           ctx.font = 'bold 20px sans-serif';
           ctx.fillText('♥', z.x, labelY - 27);
         }
+      }
+      if ((z.confusedTimer ?? 0) > 0) {
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.fillStyle = '#facc15';
+        ctx.fillText('?', z.x + Math.sin(z.walkCycle * 4) * 10, z.y - 137 * z.scale);
       }
       ctx.restore();
 
