@@ -10,7 +10,7 @@ TikTok LIVE bağlantısı oyun sayfası açılınca `ersanyakit` hesabı için o
 
 `/game` sayfasında yalnızca oyun bulunur; `/control` sayfasında sahne, TikTok ve görüntü ayarları bulunur. Kontrol sayfasındaki **Oyun ekranını aç** düğmesi oyunu ayrı sekmede açar. Oyun canvas'ının çizim çözünürlüğü 1080×1920'dir; görüntü ekranın sol kenarına sabitlenir ve 9:16 oranını korur.
 
-OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın ve kaynak boyutunu **1080×1920** ayarlayın. Kontrol sayfası ile oyun sekmesi aynı tarayıcı profilinde açıksa ayarlar anında eşitlenir. Ayrı OBS tarayıcı kaynağı, tarayıcı depolamasını paylaşmadığından canlı kontrol için ayrıca bir sunucu eşitlemesi gerekir.
+OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın ve kaynak boyutunu **1080×1920** ayarlayın. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
 
 ## Vercel
 
@@ -22,6 +22,11 @@ Environment Variables bölümüne şunları ekleyin ve yeniden deploy edin:
 | --- | --- |
 | `VITE_TIKTOK_ENABLED` | `true` (kapatmak için `false`) |
 | `EULER_SIGN_API_KEY` | İsteğe bağlı; sunucuda kalan Euler Stream anahtarı |
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST adresi |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST anahtarı |
+| `CONTROL_SECRET` | Uzun, rastgele kontrol anahtarı |
+
+Vercel'de kontrol sayfasını `/control?key=CONTROL_SECRET_DEĞERİ` adresinden açın. Paneldeki OBS bağlantısı aynı anahtarı oyun adresine ekler. API, oyun durumunu saniyede bir eşitler; aynı tarayıcıdaki kontroller ayrıca anında aktarılır.
 
 Yayıncı adını oyundaki ayarlardan girin. Connector'ın `MEMBER` olayı her yeni izleyici için isimli zombi oluşturur; `LIKE` olayındaki `count` değeri beğeni hızlandırmasını artırır. Beğeni gönderen izleyicinin katılım olayı kaçırılmışsa o da zombi listesine eklenir. Aynı kullanıcı tekrar geldiğinde ikinci bir zombi oluşturulmaz.
 

@@ -16,9 +16,10 @@ class MockConnection extends EventEmitter {
     super();
     assert.equal(username, 'naturreiki');
     assert.equal(options.processInitialData, false);
+    assert.equal(options.fetchRoomInfoOnConnect, false);
     connection = this;
   }
-  async connect() { return { roomId: '123' }; }
+  async connect(roomId) { assert.equal(roomId, undefined); return { roomId: '123456' }; }
   async disconnect() {}
 }
 class MockResponse extends EventEmitter {
@@ -34,6 +35,8 @@ const handler = createTikTokHandler(async () => ({
 }));
 const response = new MockResponse();
 await handler({ method: 'GET', url: '/api/tiktok?username=%40naturreiki' }, response);
+assert.ok(events.some(value => value.includes('event: ready') && value.includes('123456')),
+  'the browser receives a room ID for reconnecting without a new room lookup');
 connection.emit('member', { user: { userId: '42', nickname: 'Natur Reiki' } });
 connection.emit('like', { count: 4, user: { id: '43', displayId: 'nexus__m34' } });
 connection.emit('like', { count: 15 });
@@ -52,6 +55,36 @@ assert.equal(events.filter(value => value.includes('event: chat')).length, 1,
 assert.equal(events.filter(value => value.includes('event: gift')).length, 1,
   'a gift streak triggers one action after the final event');
 response.emit('close');
+
+class CachedConnection extends MockConnection {
+  async connect(roomId) { assert.equal(roomId, '123456'); return { roomId }; }
+}
+const cachedResponse = new MockResponse();
+await createTikTokHandler(async () => ({
+  TikTokLiveConnection: CachedConnection,
+  WebcastEvent: { MEMBER: 'member', LIKE: 'like', CHAT: 'chat', GIFT: 'gift' },
+  ControlEvent: { DISCONNECTED: 'disconnected', ERROR: 'error' },
+}))({ method: 'GET', url: '/api/tiktok?username=naturreiki&roomId=123456' }, cachedResponse);
+cachedResponse.emit('close');
+
+const rateEvents = [];
+class RateLimitedConnection extends EventEmitter {
+  async connect() {
+    this.emit('error', { info: 'Error while connecting', exception: new Error('[Rate Limited] Too many connections') });
+    throw new Error('[Rate Limited] Too many connections');
+  }
+  async disconnect() {}
+}
+class RateResponse extends MockResponse {
+  write(value) { rateEvents.push(value); }
+}
+await createTikTokHandler(async () => ({
+  TikTokLiveConnection: RateLimitedConnection,
+  WebcastEvent: { MEMBER: 'member', LIKE: 'like', CHAT: 'chat', GIFT: 'gift' },
+  ControlEvent: { DISCONNECTED: 'disconnected', ERROR: 'error' },
+}))({ method: 'GET', url: '/api/tiktok?username=naturreiki' }, new RateResponse());
+assert.ok(rateEvents.some(value => value.includes('event: rate_limited')),
+  'rate limits are reported separately so the browser can pause retries');
 
 const root = new URL('../', import.meta.url).pathname;
 const dir = await mkdtemp(join(tmpdir(), 'kirbac-live-'));

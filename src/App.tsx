@@ -26,6 +26,7 @@ const normalizeTikTokUsername = (value: string | null) => {
 
 export default function App() {
   const pageParams = new URLSearchParams(window.location.search);
+  const controlKey = pageParams.get('key') ?? '';
   const obsMode = window.location.pathname === '/game' || pageParams.get('obs') === '1';
   const controlMode = !obsMode;
   const [savedControl] = useState(readControlSnapshot);
@@ -39,8 +40,12 @@ export default function App() {
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting');
   const [liveMessage, setLiveMessage] = useState('');
   const [remoteStats, setRemoteStats] = useState({ zombies: 0, likes: 0 });
+  const [gameOnline, setGameOnline] = useState(false);
   const channelRef = useRef<BroadcastChannel | null>(null);
-  const lastStatusSent = useRef(0);
+  const lastGameStatusRef = useRef(0);
+  const relayRevisionRef = useRef<string | null>(null);
+  const relayCommandRef = useRef<string | null>(null);
+  const relayInitializedRef = useRef(false);
   const [tiktokUsername, setTikTokUsername] = useState(() => {
     if (savedControl?.username) return normalizeTikTokUsername(savedControl.username);
     if (obsMode && pageParams.get('username')) return normalizeTikTokUsername(pageParams.get('username'));
@@ -86,34 +91,57 @@ export default function App() {
     void soundEngine.prepare().catch(() => { /* Visuals keep running without audio. */ });
   }, [obsMode]);
 
-  const obsUrl = new URL('/game', window.location.origin).toString();
+  const obsUrl = new URL('/game', window.location.origin);
+  if (controlKey) obsUrl.searchParams.set('key', controlKey);
+  const gameUrl = obsUrl.toString();
+
+  const relayPost = useCallback((data: unknown) => {
+    void fetch('/api/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(controlKey
+        ? { 'X-Control-Key': controlKey } : {}) },
+      body: JSON.stringify(data),
+    }).catch(() => { /* Local browser sync remains available. */ });
+  }, [controlKey]);
+
+  const sendCommand = (command: 'pause' | 'restart' | 'reconnect') => {
+    const id = `${Date.now()}-${Math.random()}`;
+    channelRef.current?.postMessage({ type: command, id });
+    relayPost({ type: 'command', command, id });
+  };
 
   const publishControl = (overrides: Partial<ControlSnapshot> = {}) => {
     if (!controlMode) return;
     const snapshot = { ...captureControlSnapshot(engine, currentMap, tiktokUsername), ...overrides };
     try { localStorage.setItem(CONTROL_STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* Private storage can be unavailable. */ }
     channelRef.current?.postMessage({ type: 'control', snapshot });
+    relayPost({ type: 'control', snapshot });
   };
+
+  useEffect(() => {
+    if (controlMode) publishControl();
+  }, []);
+
+  const applyRemote = useCallback((value: unknown) => {
+    if (!obsMode) return;
+    const snapshot = parseControlSnapshot(value);
+    if (!snapshot) return;
+    applyControlSnapshot(engine, snapshot);
+    setCurrentMap(snapshot.map);
+    engine.setBackgroundImage(snapshot.map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    setRapidWhip(snapshot.rapidWhip);
+    setRapidWhipSpeed(snapshot.rapidWhipSpeed);
+    setTikTokUsername(previous => {
+      if (previous === snapshot.username) return previous;
+      engine.clearLiveViewers();
+      return snapshot.username;
+    });
+    setTick(t => t + 1);
+  }, [engine, obsMode]);
 
   useEffect(() => {
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONTROL_CHANNEL);
     channelRef.current = channel;
-    const applyRemote = (value: unknown) => {
-      if (!obsMode) return;
-      const snapshot = parseControlSnapshot(value);
-      if (!snapshot) return;
-      applyControlSnapshot(engine, snapshot);
-      setCurrentMap(snapshot.map);
-      engine.setBackgroundImage(snapshot.map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
-      setRapidWhip(snapshot.rapidWhip);
-      setRapidWhipSpeed(snapshot.rapidWhipSpeed);
-      setTikTokUsername(previous => {
-        if (previous === snapshot.username) return previous;
-        engine.clearLiveViewers();
-        return snapshot.username;
-      });
-      setTick(t => t + 1);
-    };
     const onStorage = (event: StorageEvent) => {
       if (event.key === CONTROL_STORAGE_KEY && event.newValue) {
         try { applyRemote(JSON.parse(event.newValue) as unknown); } catch { /* Ignore invalid storage data. */ }
@@ -127,16 +155,23 @@ export default function App() {
       if (!data) return;
       if (data.type === 'control') applyRemote(data.snapshot);
       else if (data.type === 'status' && controlMode) {
+        lastGameStatusRef.current = Date.now();
+        setGameOnline(true);
         if (data.status === 'connected' || data.status === 'connecting' || data.status === 'offline' || data.status === 'error') setLiveStatus(data.status);
         if (typeof data.message === 'string') setLiveMessage(data.message);
         setRemoteStats({ zombies: Number(data.zombies) || 0, likes: Number(data.likes) || 0 });
         if (typeof data.paused === 'boolean') setIsPaused(data.paused);
       } else if (data.type === 'status-request' && obsMode) sendStatus();
       else if (data.type === 'restart' && obsMode) {
+        if (typeof data.id === 'string') relayCommandRef.current = data.id;
         engine.restartGame(); setGameState('PLAYING'); setIsPaused(false); sendStatus();
       } else if (data.type === 'pause' && obsMode) {
+        if (typeof data.id === 'string') relayCommandRef.current = data.id;
         setIsPaused(value => !value);
-      } else if (data.type === 'reconnect' && obsMode) setLiveReconnect(value => value + 1);
+      } else if (data.type === 'reconnect' && obsMode) {
+        if (typeof data.id === 'string') relayCommandRef.current = data.id;
+        setLiveReconnect(value => value + 1);
+      }
     };
     window.addEventListener('storage', onStorage);
     if (controlMode) channel?.postMessage({ type: 'status-request' });
@@ -145,13 +180,72 @@ export default function App() {
       channel?.close();
       if (channelRef.current === channel) channelRef.current = null;
     };
-  }, [engine, obsMode, controlMode, liveStatus, liveMessage, isPaused]);
+  }, [engine, obsMode, controlMode, liveStatus, liveMessage, isPaused, applyRemote]);
 
   useEffect(() => {
-    if (obsMode) channelRef.current?.postMessage({ type: 'status',
-      status: liveStatus, message: liveMessage, zombies: engine.zombies.zombies.length,
-      likes: engine.liveLikes, paused: isPaused });
-  }, [engine, obsMode, liveStatus, liveMessage, isPaused]);
+    let active = true;
+    let polling = false;
+    const poll = async () => {
+      if (polling) return;
+      polling = true;
+      try {
+        const response = await fetch('/api/control', { cache: 'no-store' });
+        if (!response.ok || !active) return;
+        const record = await response.json() as {
+          snapshot?: unknown;
+          revision?: string;
+          command?: { id?: string; type?: string };
+          status?: { status?: LiveStatus; message?: string; zombies?: number; likes?: number; paused?: boolean };
+          statusAt?: number;
+        };
+        if (!active) return;
+        if (obsMode) {
+          if (record.revision && record.revision !== relayRevisionRef.current) {
+            relayRevisionRef.current = record.revision;
+            applyRemote(record.snapshot);
+          }
+          if (!relayInitializedRef.current) {
+            relayCommandRef.current = record.command?.id ?? null;
+            relayInitializedRef.current = true;
+          } else if (record.command?.id && record.command.id !== relayCommandRef.current) {
+            relayCommandRef.current = record.command.id;
+            if (record.command.type === 'restart') {
+              engine.restartGame(); setGameState('PLAYING'); setIsPaused(false);
+            } else if (record.command.type === 'pause') setIsPaused(value => !value);
+            else if (record.command.type === 'reconnect') setLiveReconnect(value => value + 1);
+          }
+        } else if (record.status) {
+          const status = record.status;
+          if (typeof record.statusAt === 'number' && record.statusAt > lastGameStatusRef.current) {
+            lastGameStatusRef.current = record.statusAt;
+            if (status.status) setLiveStatus(status.status);
+            if (typeof status.message === 'string') setLiveMessage(status.message);
+            setRemoteStats(previous => previous.zombies === status.zombies && previous.likes === status.likes
+              ? previous : { zombies: status.zombies ?? 0, likes: status.likes ?? 0 });
+            if (typeof status.paused === 'boolean') setIsPaused(status.paused);
+          }
+          setGameOnline(Date.now() - lastGameStatusRef.current < 90000);
+        }
+      } catch { /* Local BroadcastChannel sync can still work. */ }
+      finally { polling = false; }
+    };
+    void poll();
+    const interval = window.setInterval(() => { void poll(); }, 1000);
+    return () => { active = false; clearInterval(interval); };
+  }, [engine, obsMode, applyRemote]);
+
+  useEffect(() => {
+    if (!obsMode) return;
+    const send = () => {
+      const status = { status: liveStatus, message: liveMessage,
+        zombies: engine.zombies.zombies.length, likes: engine.liveLikes, paused: isPaused };
+      channelRef.current?.postMessage({ type: 'status', ...status });
+      relayPost({ type: 'status', status });
+    };
+    send();
+    const interval = window.setInterval(send, 1000);
+    return () => clearInterval(interval);
+  }, [engine, obsMode, liveStatus, liveMessage, isPaused, relayPost]);
 
   useEffect(() => {
     if (!featureFlags.tiktokEnabled || controlMode) return;
@@ -181,7 +275,7 @@ export default function App() {
   const changeTikTokUsername = (value: string) => {
     const next = value.trim().replace(/^@/, '');
     if (next === tiktokUsername) {
-      if (controlMode) channelRef.current?.postMessage({ type: 'reconnect' });
+      if (controlMode) sendCommand('reconnect');
       else setLiveReconnect(value => value + 1);
       return;
     }
@@ -204,14 +298,7 @@ export default function App() {
       else setGameState('GAME_OVER');
     }
     setTick((t) => (t + 1) % 1000);
-    const now = performance.now();
-    if (obsMode && now - lastStatusSent.current >= 1000) {
-      lastStatusSent.current = now;
-      channelRef.current?.postMessage({ type: 'status', status: liveStatus,
-        message: liveMessage, zombies: engine.zombies.zombies.length,
-        likes: engine.liveLikes, paused: isPaused });
-    }
-  }, [engine, gameState, obsMode, liveStatus, liveMessage, isPaused]);
+  }, [engine, gameState, obsMode]);
 
   const handleStartGame = async () => {
     soundEngine.startBackground();
@@ -497,11 +584,14 @@ export default function App() {
       {!obsMode && (
         <aside className="control-area" aria-label="Oyun kontrolleri ve ayarları">
       <div className="control-toolbar">
-        <a href={obsUrl} target="_blank" rel="noreferrer">Oyun ekranını aç</a>
-        <button type="button" onClick={() => channelRef.current?.postMessage({ type: 'pause' })}>
+        <span className={gameOnline ? 'text-emerald-300' : 'text-amber-300'}>
+          Oyun: {gameOnline ? 'bağlı' : 'bağlantı bekleniyor'}
+        </span>
+        <a href={gameUrl} target="_blank" rel="noreferrer">Oyun ekranını aç</a>
+        <button type="button" onClick={() => sendCommand('pause')}>
           {isPaused ? 'Devam et' : 'Duraklat'}
         </button>
-        <button type="button" onClick={() => channelRef.current?.postMessage({ type: 'restart' })}>
+        <button type="button" onClick={() => sendCommand('restart')}>
           Yeniden başlat
         </button>
       </div>
@@ -512,7 +602,7 @@ export default function App() {
               title={liveMessage || `TikTok: ${liveStatus}`} aria-label={`TikTok: ${liveStatus}`}>
               <div className="flex items-center gap-1">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${liveStatus === 'connected' ? 'bg-emerald-400' : liveStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
-                <span className="rapid-whip-copy truncate">TikTok {liveStatus === 'connected' ? 'bağlı' : liveStatus === 'connecting' ? 'bağlanıyor' : 'bağlantı yok'}</span>
+                <span className="rapid-whip-copy truncate">TikTok {liveStatus === 'connected' ? 'bağlı' : liveStatus === 'connecting' ? 'bağlanıyor' : liveStatus === 'offline' ? 'yayın çevrimdışı' : 'bağlantı hatası'}</span>
               </div>
               <div className="rapid-whip-copy mt-1 text-pink-300">{remoteStats.zombies} zombi · ♥ {remoteStats.likes}</div>
             </div>
@@ -627,7 +717,7 @@ export default function App() {
           onTikTokUsernameChange={changeTikTokUsername}
           currentMap={currentMap}
           onSelectMap={handleSelectMap}
-          obsUrl={obsUrl}
+          obsUrl={gameUrl}
         />
         </aside>
       )}

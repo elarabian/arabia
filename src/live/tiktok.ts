@@ -14,31 +14,61 @@ export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewe
   onStatus: (status: LiveStatus, message?: string) => void,
   onChat: (chat: LiveChat) => void,
   onGift: (gift: LiveGift) => void) {
-  const url = `/api/tiktok?username=${encodeURIComponent(username.trim().replace(/^@/, ''))}`;
+  const cleanUsername = username.trim().replace(/^@/, '');
+  const url = `/api/tiktok?username=${encodeURIComponent(cleanUsername)}`;
+  const roomStorageKey = `tiktokRoomId:${cleanUsername.toLowerCase()}`;
+  let roomId = '';
+  try {
+    const saved = localStorage.getItem(roomStorageKey) ?? '';
+    if (/^\d{5,30}$/.test(saved)) roomId = saved;
+  } catch { /* Storage can be unavailable in OBS. */ }
   let source: EventSource | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let retryCount = 0;
+  let connectedAt = 0;
+  let hadReady = false;
+  let outageTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
 
-  const reconnect = () => {
+  const reportOutage = (status: LiveStatus, message: string) => {
+    if (!hadReady) { onStatus(status, message); return; }
+    if (outageTimer !== null) return;
+    outageTimer = setTimeout(() => {
+      outageTimer = null;
+      onStatus(status, message);
+    }, 8000);
+  };
+
+  const reconnect = (delayOverride?: number, quiet = false) => {
     if (stopped || retryTimer !== null) return;
     source?.close();
     source = null;
-    const delay = Math.min(30000, 2000 * 2 ** Math.min(retryCount++, 4));
+    const delay = delayOverride ?? Math.min(30000, 2000 * 2 ** Math.min(retryCount++, 4));
     retryTimer = setTimeout(() => {
       retryTimer = null;
-      open();
+      open(quiet);
     }, delay);
   };
 
-  const open = () => {
+  const open = (quiet = false) => {
     if (stopped) return;
-    onStatus('connecting', retryCount ? 'Yeniden bağlanıyor' : undefined);
-    const current = new EventSource(url);
+    connectedAt = 0;
+    if (!quiet) onStatus('connecting', retryCount ? 'Yeniden bağlanıyor' : undefined);
+    const current = new EventSource(roomId ? `${url}&roomId=${encodeURIComponent(roomId)}` : url);
     source = current;
-    current.addEventListener('ready', () => {
+    current.addEventListener('ready', event => {
       if (stopped || source !== current) return;
-      retryCount = 0;
+      try {
+        const ready = JSON.parse((event as MessageEvent).data) as { roomId?: string };
+        if (ready.roomId && /^\d{5,30}$/.test(ready.roomId)) {
+          roomId = ready.roomId;
+          try { localStorage.setItem(roomStorageKey, roomId); } catch { /* Storage is optional. */ }
+        }
+      } catch { /* The connection is usable without a cached room ID. */ }
+      connectedAt = Date.now();
+      hadReady = true;
+      if (outageTimer !== null) clearTimeout(outageTimer);
+      outageTimer = null;
       onStatus('connected');
     });
     current.addEventListener('viewer', event => {
@@ -71,20 +101,54 @@ export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewe
     });
     current.addEventListener('offline', event => {
       if (stopped || source !== current) return;
+      try { reportOutage('offline', JSON.parse((event as MessageEvent).data) as string); }
+      catch { reportOutage('offline', (event as MessageEvent).data); }
+      if (connectedAt && Date.now() - connectedAt > 60000) retryCount = 0;
+      reconnect(undefined, true);
+    });
+    current.addEventListener('rate_limited', event => {
+      if (stopped || source !== current) return;
+      if (outageTimer !== null) clearTimeout(outageTimer);
+      outageTimer = null;
+      try { onStatus('error', JSON.parse((event as MessageEvent).data) as string); }
+      catch { onStatus('error', (event as MessageEvent).data); }
+      reconnect(120000, true);
+    });
+    current.addEventListener('unavailable', event => {
+      if (stopped || source !== current) return;
+      if (outageTimer !== null) clearTimeout(outageTimer);
+      outageTimer = null;
       try { onStatus('offline', JSON.parse((event as MessageEvent).data) as string); }
       catch { onStatus('offline', (event as MessageEvent).data); }
-      reconnect();
+      const cachedRoomFailed = Boolean(roomId);
+      roomId = '';
+      try { localStorage.removeItem(roomStorageKey); } catch { /* Storage is optional. */ }
+      reconnect(cachedRoomFailed ? 2000 : 30000, true);
+    });
+    current.addEventListener('warning', event => {
+      if (stopped || source !== current) return;
+      try { onStatus('connected', JSON.parse((event as MessageEvent).data) as string); }
+      catch { onStatus('connected', (event as MessageEvent).data); }
+    });
+    current.addEventListener('rotate', () => {
+      if (stopped || source !== current) return;
+      retryCount = 0;
+      reconnect(0, true);
     });
     current.addEventListener('fatal', event => {
       if (stopped || source !== current) return;
+      if (outageTimer !== null) clearTimeout(outageTimer);
+      outageTimer = null;
       try { onStatus('error', JSON.parse((event as MessageEvent).data) as string); }
       catch { onStatus('error', (event as MessageEvent).data); }
-      reconnect();
+      roomId = '';
+      try { localStorage.removeItem(roomStorageKey); } catch { /* Storage is optional. */ }
+      reconnect(undefined, true);
     });
     current.onerror = () => {
       if (stopped || source !== current) return;
-      onStatus('error', 'Bağlantı kesildi; yeniden denenecek');
-      reconnect();
+      reportOutage('error', 'Bağlantı kesildi; yeniden denenecek');
+      reconnect(undefined, true);
     };
   };
 
@@ -92,6 +156,7 @@ export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewe
   return () => {
     stopped = true;
     if (retryTimer !== null) clearTimeout(retryTimer);
+    if (outageTimer !== null) clearTimeout(outageTimer);
     source?.close();
     source = null;
   };

@@ -14,6 +14,8 @@ return async function handler(request, response) {
     return;
   }
   const username = new URL(request.url, 'http://localhost').searchParams.get('username')?.trim().replace(/^@/, '');
+  const requestedRoomId = new URL(request.url, 'http://localhost').searchParams.get('roomId');
+  const roomId = requestedRoomId && /^\d{5,30}$/.test(requestedRoomId) ? requestedRoomId : undefined;
   if (!username || !/^[\w.]{2,32}$/.test(username)) {
     response.statusCode = 400;
     response.end('Geçerli bir TikTok kullanıcı adı gerekli');
@@ -28,6 +30,7 @@ return async function handler(request, response) {
   response.write('retry: 3000\n\n');
 
   let connection;
+  let connected = false;
   let closed = false;
   let heartbeat;
   let limit;
@@ -36,8 +39,12 @@ return async function handler(request, response) {
   };
   const errorText = error => {
     if (typeof error === 'string') return error;
-    return error?.message || error?.info || error?.exception?.message || String(error || 'TikTok bağlantı hatası');
+    const summary = error?.message || error?.info;
+    const detail = error?.exception?.message;
+    if (summary && detail && summary !== detail) return `${summary}: ${detail}`;
+    return detail || summary || String(error || 'TikTok bağlantı hatası');
   };
+  const isRateLimited = message => /rate.limit|too many connections/i.test(message);
   const close = () => {
     if (closed) return;
     closed = true;
@@ -50,14 +57,17 @@ return async function handler(request, response) {
   heartbeat = setInterval(() => {
     if (!closed) response.write(': heartbeat\n\n');
   }, 15000);
-  limit = setTimeout(close, 240000);
+  limit = setTimeout(() => {
+    send('rotate', 'Bağlantı yenileniyor');
+    close();
+  }, 230000);
 
   try {
     const { TikTokLiveConnection, WebcastEvent, ControlEvent } = await loadConnector();
     if (closed) return;
     connection = new TikTokLiveConnection(username, {
       processInitialData: false,
-      fetchRoomInfoOnConnect: true,
+      fetchRoomInfoOnConnect: false,
       ...(process.env.EULER_SIGN_API_KEY ? { signApiKey: process.env.EULER_SIGN_API_KEY } : {}),
     });
     const seenViewers = new Set();
@@ -96,8 +106,9 @@ return async function handler(request, response) {
       if (id) send('gift', { id, name, handle, gift: data?.giftName ?? data?.gift?.name ?? '',
         count: Number(data?.repeatCount ?? 1) || 1 });
     });
-    connection.on(ControlEvent.DISCONNECTED, () => {
-      send('offline', 'TikTok bağlantısı kesildi');
+    connection.on(ControlEvent.DISCONNECTED, event => {
+      const reason = [event?.code, event?.reason].filter(Boolean).join(' · ');
+      send('offline', reason ? `TikTok bağlantısı kesildi: ${reason}` : 'TikTok bağlantısı kesildi');
       close();
     });
     connection.on(ControlEvent.ERROR, error => {
@@ -106,16 +117,35 @@ return async function handler(request, response) {
         send('info', 'Yayın odası alternatif yoldan aranıyor');
         return;
       }
+      if (message.includes('Failed to retrieve Room ID from all sources') || error?.name === 'UserOfflineError') {
+        send('unavailable', 'Yayın odası bulunamadı. Hesabın canlı yayında ve erişilebilir olduğunu kontrol edin.');
+        close();
+        return;
+      }
+      if (isRateLimited(message)) {
+        send('rate_limited', 'TikTok bağlantı sınırı doldu. 2 dakika sonra yeniden denenecek.');
+        close();
+        return;
+      }
+      if (connected) {
+        send('warning', message);
+        return;
+      }
       send('fatal', message);
       close();
     });
-    await connection.connect();
-    send('ready', { username });
+    const state = await connection.connect(roomId);
+    connected = true;
+    send('ready', { username, roomId: String(state?.roomId ?? roomId ?? '') });
   } catch (error) {
     const message = error?.code === 'ERR_MODULE_NOT_FOUND'
       ? 'TikTok paketi eksik. npm install komutunu çalıştırın.'
       : errorText(error);
-    send('fatal', message);
+    if (message.includes('Failed to retrieve Room ID from all sources') || error?.name === 'UserOfflineError') {
+      send('unavailable', 'Yayın odası bulunamadı. Hesabın canlı yayında ve erişilebilir olduğunu kontrol edin.');
+    } else if (isRateLimited(message)) {
+      send('rate_limited', 'TikTok bağlantı sınırı doldu. 2 dakika sonra yeniden denenecek.');
+    } else send('fatal', message);
     close();
   }
 };

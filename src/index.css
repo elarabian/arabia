@@ -116,11 +116,17 @@
 
 .control-toolbar {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px;
   background: #1c1917;
   border-bottom: 1px solid #57534e;
+}
+
+.control-toolbar > span {
+  margin-right: 8px;
+  font-size: 13px;
 }
 
 .control-toolbar a,

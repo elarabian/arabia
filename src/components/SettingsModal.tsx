@@ -110,7 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
               <p className="text-[11px] text-stone-400">Canlı yayına katılan her izleyici adıyla bir zombi olur. Yayıncıyı değiştirince zombi listesi yenilenir.</p>
               <p role="status" className={`text-[11px] ${tiktokStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}`}>
-                Durum: {tiktokStatus === 'connected' ? 'Bağlandı' : tiktokStatus === 'connecting' ? 'Bağlanıyor' : 'Bağlantı yok'}
+                Durum: {tiktokStatus === 'connected' ? 'Bağlandı' : tiktokStatus === 'connecting' ? 'Bağlanıyor' : tiktokStatus === 'offline' ? 'Yayın çevrimdışı' : 'Bağlantı hatası'}
                 {tiktokMessage ? ` · ${tiktokMessage}` : ''}
               </p>
             </div>
