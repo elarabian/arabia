@@ -16,13 +16,16 @@ async function redis(command) {
   return data.result;
 }
 
-async function readRecord() {
-  const values = await redis(['MGET', `${KEY}:snapshot`, `${KEY}:command`, `${KEY}:status`]);
+async function readRecord(includeAudience = false) {
+  const keys = [`${KEY}:snapshot`, `${KEY}:command`, `${KEY}:status`];
+  if (includeAudience) keys.push(`${KEY}:audience`);
+  const values = await redis(['MGET', ...keys]);
   if (values === null) return localRecord;
   const snapshot = values[0] ? JSON.parse(values[0]) : {};
   const command = values[1] ? JSON.parse(values[1]) : {};
   const status = values[2] ? JSON.parse(values[2]) : {};
-  return { ...snapshot, ...command, ...status };
+  const audience = includeAudience && values[3] ? JSON.parse(values[3]) : {};
+  return { ...snapshot, ...command, ...status, ...audience };
 }
 
 async function writePart(part, value) {
@@ -52,7 +55,8 @@ export default async function handler(request, response) {
   }
   try {
     if (request.method === 'GET') {
-      send(200, await readRecord());
+      const includeAudience = new URL(request.url, 'http://localhost').searchParams.get('audience') === '1';
+      send(200, await readRecord(includeAudience));
       return;
     }
     if (process.env.CONTROL_SECRET && request.headers['x-control-key'] !== process.env.CONTROL_SECRET) {

@@ -42,7 +42,7 @@ Yayıncı adını oyundaki ayarlardan girin. Connector'ın `MEMBER` olayı her y
 
 Sohbette cümle içinde geçen `kırbaç`, `göm`, `cehennem`, `patlat` veya `bomba` sözcükleri görev oluşturur. Türkçe karakterli ve karaktersiz yazımlar eşleştirilir. Mesajda bir izleyici adı varsa hedef o izleyicidir; yoksa mesajı yazan izleyicidir. Görevler sırayla çalışır ve aynı bekleyen komut tekrar eklenmez. Sohbet mesajları kahramanın üzerinde görünür. Bir hediye gömülü göndereni mezardan çıkarır ve gönderen için mevcut sahneden farklı rastgele bir kırbaç, gömme veya cehennem eylemi başlatır. Tekrar eden hediye serisi yalnızca bittiğinde işlenir.
 
-Yayıncı canlı değilse bağlantı durumu panelde hata olarak görünür ve tarayıcı bağlantıyı yeniden dener. Her izleyici tarayıcısı ayrı TikTok bağlantısı açar; oyunu yayın için tek tarayıcı oturumunda çalıştırın. Katılım olayları mevcut izleyici listesinin tamamı değildir ve ayrılma olayı bu entegrasyonda izlenmez. `tiktok-live-connector` resmî TikTok API'si değildir; TikTok protokol değişiklikleri bağlantıyı etkileyebilir.
+Yayıncı canlı değilse bağlantı durumu panelde hata olarak görünür ve tarayıcı bağlantıyı yeniden dener. Vercel'de Chrome'daki `/control` sayfası TikTok olaylarını alır; sunucu izleyicileri, beğenileri, sohbet komutlarını ve hediyeleri Redis'e yazar. TikTok LIVE Studio içindeki `/game` sayfası bunları kontrol API'sinden okur. Kontrol sayfası kapanırsa oyun kendi TikTok bağlantısına geri döner. Katılım olayları mevcut izleyici listesinin tamamı değildir ve ayrılma olayı bu entegrasyonda izlenmez. `tiktok-live-connector` resmî TikTok API'si değildir; TikTok protokol değişiklikleri bağlantıyı etkileyebilir.
 
 ## Kontrol
 

@@ -6,7 +6,7 @@ import { ShopModal } from './components/ShopModal';
 import { SettingsModal } from './components/SettingsModal';
 import { soundEngine } from './game/audio';
 import { featureFlags } from './featureFlags';
-import { connectTikTokLive, type LiveStatus } from './live/tiktok';
+import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
 import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame } from 'lucide-react';
@@ -19,6 +19,9 @@ export const ARABIAN_DESERT_BG_URL = saharaUrl;
 export const GRAVEYARD_BG_URL = graveyardUrl;
 const CREST_URL = crestUrl;
 const DEFAULT_TIKTOK_USERNAME = 'ersanyakit';
+type AudienceEvent = { id: string; at: number; kind: 'like'; count: number }
+  | { id: string; at: number; kind: 'chat'; chat: LiveChat }
+  | { id: string; at: number; kind: 'gift'; gift: LiveGift };
 const normalizeTikTokUsername = (value: string | null) => {
   const username = value?.trim().replace(/^@/, '') ?? '';
   return !username || username.toLowerCase() === 'astro.ses' ? DEFAULT_TIKTOK_USERNAME : username;
@@ -52,6 +55,9 @@ export default function App() {
   const [publishedSiteError, setPublishedSiteError] = useState('');
   const [relayReadError, setRelayReadError] = useState('');
   const [relayWriteError, setRelayWriteError] = useState('');
+  const [audienceBridgeActive, setAudienceBridgeActive] = useState(false);
+  const [fallbackReady, setFallbackReady] = useState(false);
+  const processedAudienceEventsRef = useRef(new Set<string>());
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastGameStatusRef = useRef(0);
   const relayRevisionRef = useRef<string | null>(null);
@@ -194,10 +200,49 @@ export default function App() {
     setTikTokUsername(previous => {
       if (previous === snapshot.username) return previous;
       engine.clearLiveViewers();
+      processedAudienceEventsRef.current.clear();
       return snapshot.username;
     });
     setTick(t => t + 1);
   }, [engine, obsMode]);
+
+  const applyAudience = useCallback((audience: {
+    username?: string; viewers?: LiveViewer[]; events?: AudienceEvent[];
+    status?: LiveStatus; message?: string;
+  } | undefined, updatedAt: number | undefined) => {
+    if (!obsMode || isLocalControl) return;
+    const fresh = typeof updatedAt === 'number' && Date.now() - updatedAt < 8000
+      && audience?.status === 'connected'
+      && audience.username?.toLowerCase() === tiktokUsername.toLowerCase();
+    setAudienceBridgeActive(fresh);
+    if (!fresh || audience?.username?.toLowerCase() !== tiktokUsername.toLowerCase()) return;
+    if (audience.status) setLiveStatus(audience.status);
+    if (typeof audience.message === 'string') setLiveMessage(audience.message);
+    let added = false;
+    for (const viewer of Array.isArray(audience.viewers) ? audience.viewers : []) {
+      if (viewer?.id && viewer?.name) {
+        added = engine.addLiveViewer(viewer.id, viewer.name, viewer.handle) || added;
+      }
+    }
+    for (const event of Array.isArray(audience.events) ? audience.events : []) {
+      if (!event?.id || processedAudienceEventsRef.current.has(event.id)) continue;
+      processedAudienceEventsRef.current.add(event.id);
+      if (Date.now() - event.at > 15000) continue;
+      if (event.kind === 'like') engine.addLiveLikes(event.count);
+      else if (event.kind === 'chat' && event.chat?.id && event.chat?.text) {
+        engine.receiveLiveChat(event.chat.id, event.chat.name, event.chat.text);
+      } else if (event.kind === 'gift' && event.gift?.id) {
+        engine.receiveLiveGift(event.gift.id, event.gift.name);
+      }
+    }
+    if (processedAudienceEventsRef.current.size > 500) {
+      for (const id of processedAudienceEventsRef.current) {
+        processedAudienceEventsRef.current.delete(id);
+        if (processedAudienceEventsRef.current.size <= 400) break;
+      }
+    }
+    if (added) setTick(t => t + 1);
+  }, [engine, obsMode, isLocalControl, tiktokUsername]);
 
   useEffect(() => {
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONTROL_CHANNEL);
@@ -217,8 +262,9 @@ export default function App() {
       else if (data.type === 'status' && controlMode) {
         lastGameStatusRef.current = Date.now();
         setGameOnline(true);
-        if (data.status === 'connected' || data.status === 'connecting' || data.status === 'offline' || data.status === 'error') setLiveStatus(data.status);
-        if (typeof data.message === 'string') setLiveMessage(data.message);
+        if (isLocalControl && (data.status === 'connected' || data.status === 'connecting'
+          || data.status === 'offline' || data.status === 'error')) setLiveStatus(data.status);
+        if (isLocalControl && typeof data.message === 'string') setLiveMessage(data.message);
         setRemoteStats({ zombies: Number(data.zombies) || 0, likes: Number(data.likes) || 0 });
         if (typeof data.paused === 'boolean') setIsPaused(data.paused);
       } else if (data.type === 'status-request' && obsMode) sendStatus();
@@ -249,7 +295,8 @@ export default function App() {
       if (polling) return;
       polling = true;
       try {
-        const response = await fetch('/api/control', { cache: 'no-store' });
+        const response = await fetch(obsMode ? '/api/control?audience=1' : '/api/control',
+          { cache: 'no-store' });
         if (!active) return;
         if (!response.ok) {
           const issue = await response.json().catch(() => ({})) as { error?: string };
@@ -263,9 +310,13 @@ export default function App() {
           command?: { id?: string; type?: string };
           status?: { status?: LiveStatus; message?: string; zombies?: number; likes?: number; paused?: boolean };
           statusAt?: number;
+          audience?: { username?: string; viewers?: LiveViewer[]; events?: AudienceEvent[];
+            status?: LiveStatus; message?: string };
+          audienceAt?: number;
         };
         if (!active) return;
         if (obsMode) {
+          applyAudience(record.audience, record.audienceAt);
           if (record.revision && record.revision !== relayRevisionRef.current) {
             relayRevisionRef.current = record.revision;
             applyRemote(record.snapshot);
@@ -284,8 +335,8 @@ export default function App() {
           const status = record.status;
           if (typeof record.statusAt === 'number' && record.statusAt > lastGameStatusRef.current) {
             lastGameStatusRef.current = record.statusAt;
-            if (status.status) setLiveStatus(status.status);
-            if (typeof status.message === 'string') setLiveMessage(status.message);
+            if (isLocalControl && status.status) setLiveStatus(status.status);
+            if (isLocalControl && typeof status.message === 'string') setLiveMessage(status.message);
             setRemoteStats(previous => previous.zombies === status.zombies && previous.likes === status.likes
               ? previous : { zombies: status.zombies ?? 0, likes: status.likes ?? 0 });
             if (typeof status.paused === 'boolean') setIsPaused(status.paused);
@@ -298,7 +349,7 @@ export default function App() {
     void poll();
     const interval = window.setInterval(() => { void poll(); }, 1000);
     return () => { active = false; clearInterval(interval); };
-  }, [engine, obsMode, applyRemote]);
+  }, [engine, obsMode, applyRemote, applyAudience]);
 
   useEffect(() => {
     if (!obsMode) return;
@@ -314,7 +365,16 @@ export default function App() {
   }, [engine, obsMode, liveStatus, liveMessage, isPaused, relayPost]);
 
   useEffect(() => {
-    if (!featureFlags.tiktokEnabled || controlMode) return;
+    if (!obsMode || isLocalControl) return;
+    const timer = window.setTimeout(() => setFallbackReady(true), 8000);
+    return () => clearTimeout(timer);
+  }, [obsMode, isLocalControl]);
+
+  useEffect(() => {
+    if (!featureFlags.tiktokEnabled) return;
+    const bridgeSource = controlMode && !isLocalControl;
+    const directSource = obsMode && (isLocalControl || (fallbackReady && !audienceBridgeActive));
+    if (!bridgeSource && !directSource) return;
     if (!tiktokUsername.trim()) {
       setLiveStatus('offline');
       setLiveMessage('Ayarlardan TikTok yayıncı adını girin');
@@ -322,21 +382,31 @@ export default function App() {
     }
     return connectTikTokLive(
       tiktokUsername,
-      viewer => { if (engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1); },
-      count => { engine.addLiveLikes(count); },
+      viewer => {
+        if (!bridgeSource && engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1);
+      },
+      count => {
+        if (!bridgeSource) engine.addLiveLikes(count);
+      },
       (status, message) => { setLiveStatus(status); setLiveMessage(message ?? ''); },
       chat => {
-        engine.addLiveViewer(chat.id, chat.name || chat.id, chat.handle);
-        engine.receiveLiveChat(chat.id, chat.name, chat.text);
-        setTick(t => t + 1);
+        if (!bridgeSource) {
+          engine.addLiveViewer(chat.id, chat.name || chat.id, chat.handle);
+          engine.receiveLiveChat(chat.id, chat.name, chat.text);
+          setTick(t => t + 1);
+        }
       },
       gift => {
-        engine.addLiveViewer(gift.id, gift.name || gift.id, gift.handle);
-        engine.receiveLiveGift(gift.id, gift.name);
-        setTick(t => t + 1);
+        if (!bridgeSource) {
+          engine.addLiveViewer(gift.id, gift.name || gift.id, gift.handle);
+          engine.receiveLiveGift(gift.id, gift.name);
+          setTick(t => t + 1);
+        }
       },
+      bridgeSource,
     );
-  }, [engine, tiktokUsername, liveReconnect, controlMode]);
+  }, [engine, tiktokUsername, liveReconnect, controlMode, isLocalControl, obsMode,
+    fallbackReady, audienceBridgeActive]);
 
   const changeTikTokUsername = (value: string) => {
     const next = value.trim().replace(/^@/, '');

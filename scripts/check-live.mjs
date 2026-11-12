@@ -15,7 +15,7 @@ class MockConnection extends EventEmitter {
   constructor(username, options) {
     super();
     assert.equal(username, 'naturreiki');
-    assert.equal(options.processInitialData, false);
+    assert.equal(options.processInitialData, true);
     assert.equal(options.fetchRoomInfoOnConnect, false);
     connection = this;
   }
@@ -55,6 +55,61 @@ assert.equal(events.filter(value => value.includes('event: chat')).length, 1,
 assert.equal(events.filter(value => value.includes('event: gift')).length, 1,
   'a gift streak triggers one action after the final event');
 response.emit('close');
+
+const priorRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
+const priorRedisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+const priorFetch = globalThis.fetch;
+const relayRecords = new Map();
+try {
+  process.env.UPSTASH_REDIS_REST_URL = 'https://redis.test';
+  process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token';
+  globalThis.fetch = async (_url, options) => {
+    const [command, key, value, ...rest] = JSON.parse(options.body);
+    if (command === 'SET') relayRecords.set(key, value);
+    const result = command === 'GET' ? relayRecords.get(key) ?? null
+      : command === 'MGET' ? [key, value, ...rest].map(item => relayRecords.get(item) ?? null) : 'OK';
+    return { ok: true, json: async () => ({ result }) };
+  };
+  const relayResponse = new MockResponse();
+  await createTikTokHandler(async () => ({
+    TikTokLiveConnection: MockConnection,
+    WebcastEvent: { MEMBER: 'member', LIKE: 'like', CHAT: 'chat', GIFT: 'gift' },
+    ControlEvent: { DISCONNECTED: 'disconnected', ERROR: 'error' },
+  }))({ method: 'GET', url: '/api/tiktok?username=naturreiki&relay=1' }, relayResponse);
+  connection.emit('member', { uniqueId: 'beyzagust' });
+  connection.emit('chat', { uniqueId: 'beyzagust', comment: 'kırbaçla' });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const relay = JSON.parse(relayRecords.get('arabia:control:v1:audience'));
+  assert.equal(relay.audience.status, 'connected');
+  assert.equal(relay.audience.viewers[0].name, 'beyzagust');
+  assert.equal(relay.audience.events[0].kind, 'chat');
+  const { default: controlHandler } = await import('../api/control.js?relay-check=1');
+  const controlResponse = { statusCode: 0, setHeader() {}, end(value) { this.body = value; } };
+  await controlHandler({ method: 'GET', url: '/api/control?audience=1' }, controlResponse);
+  assert.equal(controlResponse.statusCode, 200);
+  assert.equal(JSON.parse(controlResponse.body).audience.events[0].chat.text, 'kırbaçla');
+  relayResponse.emit('close');
+  const reopenedEvents = [];
+  class ReopenedResponse extends MockResponse {
+    write(value) { reopenedEvents.push(value); }
+  }
+  const reopenedResponse = new ReopenedResponse();
+  await createTikTokHandler(async () => ({
+    TikTokLiveConnection: MockConnection,
+    WebcastEvent: { MEMBER: 'member', LIKE: 'like', CHAT: 'chat', GIFT: 'gift' },
+    ControlEvent: { DISCONNECTED: 'disconnected', ERROR: 'error' },
+  }))({ method: 'GET', url: '/api/tiktok?username=naturreiki&relay=1' }, reopenedResponse);
+  assert.ok(reopenedEvents.some(value => value.includes('event: viewer') && value.includes('beyzagust')),
+    'a second game browser receives viewers who joined before it opened');
+  reopenedResponse.emit('close');
+  await new Promise(resolve => setTimeout(resolve, 20));
+} finally {
+  globalThis.fetch = priorFetch;
+  if (priorRedisUrl === undefined) delete process.env.UPSTASH_REDIS_REST_URL;
+  else process.env.UPSTASH_REDIS_REST_URL = priorRedisUrl;
+  if (priorRedisToken === undefined) delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  else process.env.UPSTASH_REDIS_REST_TOKEN = priorRedisToken;
+}
 
 class CachedConnection extends MockConnection {
   async connect(roomId) { assert.equal(roomId, '123456'); return { roomId }; }
@@ -178,6 +233,20 @@ try {
   bombGame.receiveLiveChat('42','Natur Reiki','hadi şu bombayı patlat');
   bombGame.update(1/60);
   assert.equal(bombGame.bombSceneEnabled,true,'a sentence containing bomb starts the bomb scene');
+  const playBombExplosion = soundEngine.playBombExplosion;
+  const playHeroCelebration = soundEngine.playHeroCelebration;
+  soundEngine.playBombExplosion = () => {};
+  soundEngine.playHeroCelebration = () => {};
+  try {
+    for (let frame = 0; frame < 60 * 8; frame++) bombGame.update(1/60);
+  } finally {
+    soundEngine.playBombExplosion = playBombExplosion;
+    soundEngine.playHeroCelebration = playHeroCelebration;
+  }
+  assert.equal(bombGame.zombies.zombies[0].blastSleep, false,
+    'a bombed viewer wakes up instead of remaining a hidden sleeping shape');
+  assert.ok(bombGame.zombies.zombies[0].formation,
+    'a bombed viewer returns to the visible dance ring');
   const queuedGame=new GameEngine();queuedGame.restartGame();
   queuedGame.addLiveViewer('42','Natur Reiki');queuedGame.addLiveViewer('43','Beyzagust');
   queuedGame.receiveLiveChat('42','Natur Reiki','Natur Reiki kişisini göm');

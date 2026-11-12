@@ -13,9 +13,10 @@ export function connectTikTokLive(username: string, onViewer: (viewer: LiveViewe
   onLike: (count: number) => void,
   onStatus: (status: LiveStatus, message?: string) => void,
   onChat: (chat: LiveChat) => void,
-  onGift: (gift: LiveGift) => void) {
+  onGift: (gift: LiveGift) => void,
+  relayAudience = false) {
   const cleanUsername = username.trim().replace(/^@/, '');
-  const url = `/api/tiktok?username=${encodeURIComponent(cleanUsername)}`;
+  const url = `/api/tiktok?username=${encodeURIComponent(cleanUsername)}${relayAudience ? '&relay=1' : ''}`;
   const roomStorageKey = `tiktokRoomId:${cleanUsername.toLowerCase()}`;
   let roomId = '';
   try {

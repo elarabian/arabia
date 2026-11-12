@@ -593,6 +593,20 @@ export class GameEngine {
       this.bombDanceStarted = true;
       soundEngine.playHeroCelebration();
     }
+    if (previousTime < 7.75 && this.bombSceneTime >= 7.75) {
+      this.zombies.zombies.forEach((z, index) => {
+        if (z.buried) return;
+        z.blastSleep = false;
+        z.blastFlight = undefined;
+        z.blastAngle = undefined;
+        z.blastGroundY = undefined;
+        z.blastImpact = undefined;
+        z.blastDelay = undefined;
+        z.vx = 0;
+        z.vy = 0;
+        this.placeDancer(z, index);
+      });
+    }
     const runEnd = 2.58;
     const run = Math.max(0, Math.min(1, (this.bombSceneTime - .12) / (runEnd - .12)));
     const travel = this.bombSceneTime < 5 ? run
