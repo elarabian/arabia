@@ -339,6 +339,15 @@ try {
     'the selected background track survives control synchronization');
   assert.equal(parseControlSnapshot({backgroundTrack:'missing'})?.backgroundTrack,'background',
     'a missing track safely falls back to the original music');
+  const previousImage=globalThis.Image;
+  globalThis.Image=class { src=''; };
+  for(const map of ['ISTANBUL','IRAN','ISRAEL']) {
+    assert.equal(parseControlSnapshot({map})?.map,map,
+      `${map} survives control synchronization`);
+    camelGame.setWorldMap(map,`${map}.webp`);
+    assert.equal(camelGame.worldMap,map,`${map} selects its own game world`);
+  }
+  if(previousImage===undefined)delete globalThis.Image;else globalThis.Image=previousImage;
   applyControlSnapshot(camelGame,whipSnapshot);
   assert.equal(camelGame.camelSceneEnabled,false,'remote scene control leaves the camel scene');
   const pharaohGame=new GameEngine();pharaohGame.restartGame();

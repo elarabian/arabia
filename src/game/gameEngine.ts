@@ -12,6 +12,7 @@ import { drawCamel } from './camel';
 import { PHARAOH_INTRO_END, drawChaseDust, drawHeroStaff, drawPharaoh, drawPharaohBackdrop,
   drawPharaohCamel, drawRiver } from './pharaohScene';
 import { NOAH_BUILD_HITS, drawArk, drawFloodWater, drawNoahBackdrop, drawStormRain } from './noahScene';
+import { drawWorldMapMotion, type WorldMap } from './worldMaps';
 import { WhipType, Zombie, PlayerStats, GameSettings } from './types';
 import { featureFlags } from '../featureFlags';
 import { parseLiveAction, type LiveAction } from '../live/commands';
@@ -154,6 +155,10 @@ export class GameEngine {
 
   // Canvas bounds
   public width: number = BROADCAST.width;
+  public worldMap: WorldMap = 'DESERT';
+  private worldMapUrl = '';
+  private mapImpactPulse = 0;
+  private mapImpactX = 270;
   public height: number = BROADCAST.height;
 
   // TikTok Live / Mobile Safe Area settings
@@ -171,12 +176,21 @@ export class GameEngine {
     if (bgUrl) {
       this.bgImage = new Image();
       this.bgImage.src = bgUrl;
+      this.worldMapUrl = bgUrl;
     }
   }
 
   public setBackgroundImage(url: string) {
     this.bgImage = new Image();
     this.bgImage.src = url;
+  }
+
+  public setWorldMap(map: WorldMap, backgroundUrl: string) {
+    if (this.worldMap === map && this.worldMapUrl === backgroundUrl) return;
+    this.worldMap = map;
+    this.worldMapUrl = backgroundUrl;
+    this.setBackgroundImage(backgroundUrl);
+    this.mapImpactPulse = 0;
   }
 
   public setPharaohAssets(backdropUrl: string, characterUrl: string, camelUrl: string,
@@ -843,6 +857,7 @@ export class GameEngine {
 
   public update(dt: number) {
     if (this.isGameOver) return;
+    this.mapImpactPulse = Math.max(0, this.mapImpactPulse - dt * 1.8);
     soundEngine.advanceClock(dt);
     if (this.currentChat && soundEngine.audioTime >= this.currentChat.until) this.currentChat = null;
     if (!this.currentChat && this.chatQueue.length) {
@@ -1001,6 +1016,8 @@ export class GameEngine {
     const whipResult = this.whip.step(dt);
 
     if (whipResult.isCrack && whipResult.crackPos) {
+      this.mapImpactPulse = 1;
+      this.mapImpactX = whipResult.crackPos.x;
       this.stats.totalCracks++;
       const skill = this.pendingSkill;
       this.pendingSkill = null;
@@ -1899,6 +1916,10 @@ export class GameEngine {
     // 1. Draw Background, sky, fog, ground, decals (respecting TikTok Safe Area)
     this.atmosphere.drawBackground(ctx, this.width, this.height, this.bgImage, this.groundY,
       this.captureSceneEnabled ? { x: this.burialScene.cameraX, y: this.burialScene.cameraY } : undefined);
+    if (!this.pharaohSceneEnabled && !this.noahSceneEnabled) {
+      drawWorldMapMotion(ctx, this.worldMap, this.width, this.groundY,
+        time / 1000, this.mapImpactPulse, this.mapImpactX);
+    }
     if (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) {
       drawPharaohBackdrop(ctx, this.width, this.height, this.groundY, this.pharaohSceneTime,
         this.pharaohBackdropImage, this.pharaohChaseImage);

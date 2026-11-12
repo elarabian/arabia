@@ -1,12 +1,13 @@
 import type { GameEngine } from './game/gameEngine';
 import { soundEngine } from './game/audio';
 import { defaultBackgroundTrack, isAvailableBackgroundTrack } from './game/backgroundTracks';
+import { isWorldMap, type WorldMap } from './game/worldMaps';
 
 export const CONTROL_STORAGE_KEY = 'arabia.control.v1';
 export const CONTROL_CHANNEL = 'arabia.control.v1';
 
 export type ControlScene = 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL' | 'PHARAOH' | 'NOAH';
-export type ControlMap = 'DESERT' | 'GRAVEYARD';
+export type ControlMap = WorldMap;
 
 export interface ControlSnapshot {
   map: ControlMap;
@@ -30,7 +31,7 @@ export function parseControlSnapshot(value: unknown): ControlSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const data = value as Partial<ControlSnapshot>;
   return {
-      map: data.map === 'GRAVEYARD' ? 'GRAVEYARD' : 'DESERT',
+      map: isWorldMap(data.map) ? data.map : 'DESERT',
       scene: data.scene === 'BOMB' || data.scene === 'BURIAL' || data.scene === 'HELL' || data.scene === 'TASBIH' || data.scene === 'CAMEL' || data.scene === 'PHARAOH' || data.scene === 'NOAH'
         ? data.scene : 'WHIP',
       username: typeof data.username === 'string' ? data.username.trim().replace(/^@/, '') : '',

@@ -9,6 +9,7 @@ import { featureFlags } from './featureFlags';
 import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
+import { WORLD_MAPS, isWorldMap, type WorldMap } from './game/worldMaps';
 import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain, Crown, Ship } from 'lucide-react';
 
 // Preloaded generated image assets
@@ -22,8 +23,15 @@ import pharaohChaseUrl from './assets/images/pharaoh-chase.webp';
 import pharaohRunningUrl from './assets/images/pharaoh-running.webp';
 import noahArkUrl from './assets/images/noah-ark.webp';
 import noahFloodUrl from './assets/images/noah-flood.webp';
+import istanbulUrl from './assets/images/istanbul-bosphorus.webp';
+import iranUrl from './assets/images/iran-tehran.webp';
+import israelUrl from './assets/images/israel-coast.webp';
 export const ARABIAN_DESERT_BG_URL = saharaUrl;
 export const GRAVEYARD_BG_URL = graveyardUrl;
+const MAP_BG_URLS: Record<WorldMap, string> = {
+  DESERT: saharaUrl, GRAVEYARD: graveyardUrl,
+  ISTANBUL: istanbulUrl, IRAN: iranUrl, ISRAEL: israelUrl,
+};
 const CREST_URL = crestUrl;
 const DEFAULT_TIKTOK_USERNAME = 'ersanyakit';
 type AudienceEvent = { id: string; at: number; kind: 'like'; count: number; viewerId?: string }
@@ -45,8 +53,8 @@ export default function App() {
   const controlMode = !obsMode;
   const [savedControl] = useState(readControlSnapshot);
   const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAME_OVER'>('PLAYING');
-  const [currentMap, setCurrentMap] = useState<'DESERT' | 'GRAVEYARD'>(
-    savedControl?.map ?? (obsMode && pageParams.get('map') === 'GRAVEYARD' ? 'GRAVEYARD' : 'DESERT'));
+  const [currentMap, setCurrentMap] = useState<WorldMap>(
+    savedControl?.map ?? (obsMode && isWorldMap(pageParams.get('map')) ? pageParams.get('map') as WorldMap : 'DESERT'));
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [rapidWhip, setRapidWhip] = useState(savedControl?.rapidWhip ?? false);
@@ -90,7 +98,8 @@ export default function App() {
   // Keep the safe area reserved without displaying chat or overlay buttons.
   const engineRef = useRef<GameEngine | null>(null);
   if (!engineRef.current) {
-    engineRef.current = new GameEngine(currentMap === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    engineRef.current = new GameEngine(MAP_BG_URLS[currentMap]);
+    engineRef.current.setWorldMap(currentMap, MAP_BG_URLS[currentMap]);
     engineRef.current.setPharaohAssets(pharaohPalaceUrl, pharaohCharacterUrl,
       pharaohCamelUrl, pharaohChaseUrl, pharaohRunningUrl);
     engineRef.current.setNoahAssets(noahArkUrl, noahFloodUrl);
@@ -210,7 +219,7 @@ export default function App() {
     if (!snapshot) return;
     applyControlSnapshot(engine, snapshot);
     setCurrentMap(snapshot.map);
-    engine.setBackgroundImage(snapshot.map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    engine.setWorldMap(snapshot.map, MAP_BG_URLS[snapshot.map]);
     setRapidWhip(snapshot.rapidWhip);
     setRapidWhipSpeed(snapshot.rapidWhipSpeed);
     setTikTokUsername(previous => {
@@ -455,9 +464,9 @@ export default function App() {
     publishControl({ username: next });
   };
 
-  const handleSelectMap = (map: 'DESERT' | 'GRAVEYARD') => {
+  const handleSelectMap = (map: WorldMap) => {
     setCurrentMap(map);
-    engine.setBackgroundImage(map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    engine.setWorldMap(map, MAP_BG_URLS[map]);
     publishControl({ map });
   };
 
@@ -547,7 +556,7 @@ export default function App() {
       {gameState === 'TITLE' && (
         <div
           className="broadcast-stage relative z-20 flex flex-col items-center justify-center p-6 bg-cover bg-center"
-          style={{ backgroundImage: `url(${currentMap === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL})` }}
+          style={{ backgroundImage: `url(${MAP_BG_URLS[currentMap]})` }}
         >
           {/* Dark moody scrim */}
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/85 to-black/65 pointer-events-none" />
@@ -604,22 +613,15 @@ export default function App() {
                 Savaş Alanı / Harita:
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => handleSelectMap('DESERT')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    currentMap === 'DESERT'
+                {WORLD_MAPS.map(map => (
+                  <button key={map.id} onClick={() => handleSelectMap(map.id)}
+                    aria-pressed={currentMap === map.id}
+                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${currentMap === map.id
                       ? 'bg-amber-950/50 border-amber-500 text-amber-300 shadow-md'
-                      : 'bg-stone-900/60 border-stone-800 text-stone-400 hover:border-stone-700'
-                  }`}
-                >
-                  🏜️ Güneşli Sahra Çölü
-                </button>
-                <button onClick={() => handleSelectMap('GRAVEYARD')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${currentMap === 'GRAVEYARD'
-                    ? 'bg-amber-950/50 border-amber-500 text-amber-300 shadow-md'
-                    : 'bg-stone-900/60 border-stone-800 text-stone-400 hover:border-stone-700'}`}>
-                  ⚰️ Gotik Mezarlık
-                </button>
+                      : 'bg-stone-900/60 border-stone-800 text-stone-400 hover:border-stone-700'}`}>
+                    {map.icon} {map.label}
+                  </button>
+                ))}
               </div>
             </div>
 

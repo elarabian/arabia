@@ -2,6 +2,7 @@ import React from 'react';
 import { GameEngine } from '../game/gameEngine';
 import { soundEngine } from '../game/audio';
 import { backgroundTracks } from '../game/backgroundTracks';
+import { WORLD_MAPS, type WorldMap } from '../game/worldMaps';
 import { Volume2, Shield, Eye, Flame, MousePointer, Bomb, Shovel } from 'lucide-react';
 import { featureFlags } from '../featureFlags';
 
@@ -22,8 +23,8 @@ interface SettingsModalProps {
   publishedSiteUrl: string;
   publishedSiteError: string;
   onOpenPublishedControl: (value: string) => void;
-  currentMap?: 'DESERT' | 'GRAVEYARD';
-  onSelectMap?: (map: 'DESERT' | 'GRAVEYARD') => void;
+  currentMap?: WorldMap;
+  onSelectMap?: (map: WorldMap) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -238,26 +239,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Savaş Alanı / Harita Seçimi
               </label>
               <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => onSelectMap('DESERT')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    currentMap === 'DESERT'
+                {WORLD_MAPS.map(map => (
+                  <button key={map.id} onClick={() => onSelectMap(map.id)}
+                    aria-pressed={currentMap === map.id}
+                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${currentMap === map.id
                       ? 'bg-amber-950/60 border-amber-500 text-amber-300 shadow-md'
-                      : 'bg-stone-900 border-stone-800 text-stone-400 hover:border-stone-700'
-                  }`}
-                >
-                  🏜️ Arap Çölü Nekropolü
-                </button>
-                <button
-                  onClick={() => onSelectMap('GRAVEYARD')}
-                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    currentMap === 'GRAVEYARD'
-                      ? 'bg-amber-950/60 border-amber-500 text-amber-300 shadow-md'
-                      : 'bg-stone-900 border-stone-800 text-stone-400 hover:border-stone-700'
-                  }`}
-                >
-                  ⚰️ Gotik Mezarlık
-                </button>
+                      : 'bg-stone-900 border-stone-800 text-stone-400 hover:border-stone-700'}`}>
+                    {map.icon} {map.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
