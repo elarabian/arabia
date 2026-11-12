@@ -44,6 +44,10 @@ export interface Zombie {
   gifts?: number;
   favorite?: boolean;
   confusedTimer?: number;
+  applauding?: boolean;
+  stageBuilder?: boolean;
+  building?: boolean;
+  pharaohAudience?: boolean;
   lastWhippedAt?: number;
   crowdMotion?: { kind: 'enter' | 'reflow' | 'exit'; startX: number; startY: number;
     endX?: number; endY?: number; elapsed: number; duration: number };

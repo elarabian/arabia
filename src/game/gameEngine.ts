@@ -9,6 +9,9 @@ import { AtmosphereSystem, backgroundImageRect } from './atmosphere';
 import { soundEngine } from './audio';
 import { BurialScene } from './burialScene';
 import { drawCamel } from './camel';
+import { PHARAOH_INTRO_END, drawChaseDust, drawHeroStaff, drawPharaoh, drawPharaohBackdrop,
+  drawPharaohCamel, drawRiver } from './pharaohScene';
+import { NOAH_BUILD_HITS, drawArk, drawFloodWater, drawNoahBackdrop, drawStormRain } from './noahScene';
 import { WhipType, Zombie, PlayerStats, GameSettings } from './types';
 import { featureFlags } from '../featureFlags';
 import { parseLiveAction, type LiveAction } from '../live/commands';
@@ -66,6 +69,36 @@ export class GameEngine {
   public tasbihMode = false;
   public camelSceneEnabled = false;
   public camelSceneTime = 0;
+  public pharaohSceneEnabled = false;
+  public pharaohSceneTime = 0;
+  private pharaohHeroX = 270;
+  private pharaohHeroY = 550;
+  private pharaohX = 70;
+  private pharaohCamelX = 700;
+  private pharaohBackdropImage: HTMLImageElement | null = null;
+  private pharaohCharacterImage: HTMLImageElement | null = null;
+  private pharaohCamelImage: HTMLImageElement | null = null;
+  private pharaohChaseImage: HTMLImageElement | null = null;
+  private pharaohRunningImage: HTMLImageElement | null = null;
+  public noahSceneEnabled = false;
+  public noahBuildHits = 0;
+  public noahFloodTime = 0;
+  public noahDeckSwings = 0;
+  public get noahBuildProgress() {
+    return this.noahFloodTime > 0 ? 1
+      : Math.min(.97, Math.max(this.noahBuildHits / NOAH_BUILD_HITS,
+        soundEngine.getNoahConstructionProgress() * .9));
+  }
+  private noahSceneTime = 0;
+  private noahHitPulse = 0;
+  private noahDeckWhipCooldown = 0;
+  private noahHeroY = 550;
+  private noahHeroX = 270;
+  private noahHeroWalking = false;
+  private noahPassengers = new Map<string, { startX: number; startY: number; deckX: number; deckY: number; boardAt: number; ejectedAt?: number; side: number }>();
+  private noahDeckTargetId: string | null = null;
+  private noahArkImage: HTMLImageElement | null = null;
+  private noahFloodImage: HTMLImageElement | null = null;
   private camelX = -170;
   private camelHeroX = -185;
   private camelHeroY = 0;
@@ -146,6 +179,27 @@ export class GameEngine {
     this.bgImage.src = url;
   }
 
+  public setPharaohAssets(backdropUrl: string, characterUrl: string, camelUrl: string,
+    chaseUrl: string, runningUrl: string) {
+    this.pharaohBackdropImage = new Image();
+    this.pharaohBackdropImage.src = backdropUrl;
+    this.pharaohCharacterImage = new Image();
+    this.pharaohCharacterImage.src = characterUrl;
+    this.pharaohCamelImage = new Image();
+    this.pharaohCamelImage.src = camelUrl;
+    this.pharaohChaseImage = new Image();
+    this.pharaohChaseImage.src = chaseUrl;
+    this.pharaohRunningImage = new Image();
+    this.pharaohRunningImage.src = runningUrl;
+  }
+
+  public setNoahAssets(arkUrl: string, floodUrl: string) {
+    this.noahArkImage = new Image();
+    this.noahArkImage.src = arkUrl;
+    this.noahFloodImage = new Image();
+    this.noahFloodImage.src = floodUrl;
+  }
+
   public setTikTokMode(active: boolean) {
     this.isTikTokMode = active;
     this.resize(this.width, this.height, active);
@@ -214,10 +268,13 @@ export class GameEngine {
   }
 
   public setTasbihMode(enabled: boolean) {
+    if (enabled) this.setNoahScene(false);
+    if (enabled) this.setPharaohScene(false);
     if (this.tasbihMode === enabled) return;
     this.tasbihMode = enabled;
     if (enabled) {
       this.camelSceneEnabled = false;
+      this.pharaohSceneEnabled = false;
       this.bombSceneEnabled = false;
       this.burialSceneEnabled = false;
       this.hellSceneEnabled = false;
@@ -233,7 +290,9 @@ export class GameEngine {
   }
 
   public setBombScene(enabled: boolean) {
-    if (enabled) this.camelSceneEnabled = false;
+    if (enabled) this.setNoahScene(false);
+    if (enabled) this.setPharaohScene(false);
+    if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
     if (enabled) this.tasbihMode = false;
     if (this.bombSceneEnabled === enabled && !this.captureSceneEnabled) return;
     this.bombSceneEnabled = enabled;
@@ -248,7 +307,9 @@ export class GameEngine {
   }
 
   public setBurialScene(enabled: boolean) {
-    if (enabled) this.camelSceneEnabled = false;
+    if (enabled) this.setNoahScene(false);
+    if (enabled) this.setPharaohScene(false);
+    if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
     if (enabled) this.tasbihMode = false;
     if (this.burialSceneEnabled === enabled && !this.bombSceneEnabled && !this.hellSceneEnabled) return;
     this.burialSceneEnabled = enabled;
@@ -264,7 +325,9 @@ export class GameEngine {
   }
 
   public setHellScene(enabled: boolean) {
-    if (enabled) this.camelSceneEnabled = false;
+    if (enabled) this.setNoahScene(false);
+    if (enabled) this.setPharaohScene(false);
+    if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
     if (enabled) this.tasbihMode = false;
     if (this.hellSceneEnabled === enabled && !this.bombSceneEnabled && !this.burialSceneEnabled) return;
     this.hellSceneEnabled = enabled;
@@ -280,6 +343,8 @@ export class GameEngine {
   }
 
   public setCamelScene(enabled: boolean) {
+    if (enabled) this.setNoahScene(false);
+    if (enabled) this.setPharaohScene(false);
     if (this.camelSceneEnabled === enabled) return;
     this.camelSceneEnabled = enabled;
     this.camelSceneTime = 0;
@@ -292,6 +357,7 @@ export class GameEngine {
     this.activeTarget = null;
     if (!enabled) return;
     this.tasbihMode = false;
+    this.pharaohSceneEnabled = false;
     this.bombSceneEnabled = false;
     this.burialSceneEnabled = false;
     this.hellSceneEnabled = false;
@@ -300,6 +366,99 @@ export class GameEngine {
     this.camelX = -170;
     this.camelHeroX = -185;
     this.camelHeroY = this.groundY - 100;
+  }
+
+  public setPharaohScene(enabled: boolean) {
+    if (enabled) this.setNoahScene(false);
+    if (this.pharaohSceneEnabled === enabled && !enabled) return;
+    this.zombies.zombies = this.zombies.zombies.filter(z => !z.pharaohAudience);
+    this.pharaohSceneEnabled = enabled;
+    this.pharaohSceneTime = 0;
+    soundEngine.stopWhip();
+    this.queuedStrike = null;
+    this.queuedTarget = null;
+    this.activeTarget = null;
+    if (!enabled) {
+      this.zombies.zombies.forEach((z, index) => {
+        if (!z.buried && z.crowdMotion?.kind !== 'exit') this.placeDancer(z, index);
+      });
+      return;
+    }
+    this.tasbihMode = false;
+    this.camelSceneEnabled = false;
+    this.bombSceneEnabled = false;
+    this.burialSceneEnabled = false;
+    this.hellSceneEnabled = false;
+    this.burialScene.reset(this.zombies.zombies);
+    this.resetBombScene();
+    this.spawnPharaohAudience();
+    this.pharaohHeroX = this.playerX - 80;
+    this.pharaohHeroY = this.groundY;
+    this.pharaohX = 70;
+    this.pharaohCamelX = this.width + 160;
+  }
+
+  private spawnPharaohAudience() {
+    const existing = this.zombies.zombies.filter(z => !z.buried && z.crowdMotion?.kind !== 'exit').length;
+    for (let i = existing; i < 8; i++) {
+      const z = this.zombies.spawnZombie('SHAMBLER', this.playerX, this.groundY);
+      z.pharaohAudience = true;
+      z.scale = .72;
+      this.placeDancer(z, this.zombies.zombies.length - 1);
+    }
+  }
+
+  public setNoahScene(enabled: boolean) {
+    if (enabled) this.setPharaohScene(false);
+    if (!enabled && !this.noahSceneEnabled) return;
+    if (!enabled) {
+      this.noahSceneEnabled = false;
+      this.zombies.zombies = this.zombies.zombies.filter(z => !z.stageBuilder);
+      this.zombies.zombies.forEach((z, index) => {
+        if (!z.buried && z.crowdMotion?.kind !== 'exit') this.placeDancer(z, index);
+      });
+    } else {
+      this.noahSceneEnabled = true;
+      this.tasbihMode = false;
+      this.camelSceneEnabled = false;
+      this.pharaohSceneEnabled = false;
+      this.bombSceneEnabled = false;
+      this.burialSceneEnabled = false;
+      this.hellSceneEnabled = false;
+      this.burialScene.reset(this.zombies.zombies);
+      this.resetBombScene();
+      this.zombies.zombies = this.zombies.zombies.filter(z => !z.stageBuilder);
+      this.spawnNoahBuilders();
+    }
+    this.noahSceneTime = 0;
+    this.noahBuildHits = 0;
+    this.noahFloodTime = 0;
+    this.noahHitPulse = 0;
+    this.noahDeckWhipCooldown = 0;
+    this.noahDeckSwings = 0;
+    this.noahHeroY = this.groundY;
+    this.noahHeroX = this.playerX;
+    this.noahHeroWalking = false;
+    this.noahPassengers.clear();
+    this.noahDeckTargetId = null;
+    soundEngine.stopWhip();
+    this.queuedStrike = null;
+    this.queuedTarget = null;
+    this.activeTarget = null;
+    if (enabled) soundEngine.startNoahConstruction();
+    else soundEngine.stopNoahConstruction();
+  }
+
+  private spawnNoahBuilders() {
+    const count = 6;
+    for (let i = 0; i < count; i++) {
+      const z = this.zombies.spawnZombie('SHAMBLER', this.playerX, this.groundY);
+      z.stageBuilder = true;
+      z.scale = .72;
+      this.placeDancer(z, this.zombies.zombies.length - 1);
+      z.formation = undefined;
+      z.crowdMotion = undefined;
+    }
   }
 
   private resetBombScene() {
@@ -398,6 +557,29 @@ export class GameEngine {
       this.upcomingCamelTarget = null;
       this.lastCamelTargetId = null;
     }
+    if (this.pharaohSceneEnabled) {
+      this.pharaohSceneTime = 0;
+      this.pharaohHeroX = this.playerX - 80;
+      this.pharaohHeroY = this.groundY;
+      this.pharaohX = 70;
+      this.pharaohCamelX = this.width + 160;
+      this.spawnPharaohAudience();
+    }
+    if (this.noahSceneEnabled) {
+      this.noahBuildHits = 0;
+      this.noahFloodTime = 0;
+      this.noahSceneTime = 0;
+      this.noahHitPulse = 0;
+      this.noahDeckWhipCooldown = 0;
+      this.noahDeckSwings = 0;
+      this.noahHeroY = this.groundY;
+      this.noahHeroX = this.playerX;
+      this.noahHeroWalking = false;
+      this.noahPassengers.clear();
+      this.noahDeckTargetId = null;
+      this.spawnNoahBuilders();
+      soundEngine.startNoahConstruction();
+    }
   }
 
   private updateCamelIntro(dt: number) {
@@ -434,6 +616,218 @@ export class GameEngine {
     }
   }
 
+  private updatePharaohIntro(dt: number) {
+    const previousTime = this.pharaohSceneTime;
+    this.pharaohSceneTime = Math.min(PHARAOH_INTRO_END, previousTime + dt);
+    const t = this.pharaohSceneTime;
+    this.pharaohHeroY = this.groundY;
+    if (t < 2.5) {
+      this.pharaohCamelX = this.width + 160 + (300 - this.width - 160) * (t / 2.5);
+      this.pharaohHeroX = this.pharaohCamelX + 12;
+      this.pharaohHeroY = this.groundY - 110 + Math.sin(t * 14) * 5;
+      this.pharaohX = 70;
+      this.heroVisualAngle = Math.PI;
+      this.heroJump = 0;
+      this.handsRaised = .35;
+      this.bodyLean = -5;
+    } else if (t < 3.3) {
+      const dismount = (t - 2.5) / .8;
+      this.pharaohCamelX = 300;
+      this.pharaohHeroX = 312 - 32 * dismount;
+      this.pharaohHeroY = this.groundY - 110 * (1 - dismount) - Math.sin(Math.PI * dismount) * 20;
+      this.pharaohX = 70;
+      this.heroVisualAngle = Math.PI;
+      this.heroJump = 0;
+      this.handsRaised = .75;
+      this.bodyLean = -4;
+    } else if (t < 4.8) {
+      const walk = (t - 3.3) / 1.5;
+      this.pharaohCamelX = 300 + walk * (this.width + 170 - 300);
+      this.pharaohHeroX = 280 - walk * 90;
+      this.pharaohX = 70;
+      this.heroVisualAngle = Math.PI;
+      this.heroJump = Math.abs(Math.sin(t * 10)) * 4;
+      this.handsRaised = .2;
+      this.bodyLean = 2;
+    } else if (t < 7.8) {
+      const dance = t - 4.8;
+      this.pharaohHeroX = this.playerX - 80 + Math.sin(dance * 7) * 12;
+      this.pharaohX = 70 + Math.sin(dance * 5) * 7;
+      this.heroVisualAngle = Math.PI / 2 + Math.sin(dance * 5) * .35;
+      this.heroJump = Math.abs(Math.sin(dance * 8)) * 12;
+      this.handsRaised = .7 + Math.sin(dance * 8) * .2;
+      this.bodyLean = Math.sin(dance * 5) * 7;
+    } else if (t < 10.6) {
+      const run = (t - 7.8) / 2.8;
+      this.pharaohHeroX = this.playerX - 80 + run * 51;
+      this.pharaohX = 70 + run * 105;
+      this.heroVisualAngle = 0;
+      this.heroJump = Math.abs(Math.sin(t * 15)) * 12;
+      this.handsRaised = .25;
+      this.bodyLean = -8;
+    } else if (t < 13.6) {
+      const crossing = Math.max(0, (t - 11.5) / 2.1);
+      this.pharaohHeroX = this.playerX - 29 + Math.min(1, crossing) * 250;
+      this.pharaohX = 175 + Math.min(1, Math.max(0, (t - 11.5) / 2.1)) * 180;
+      this.heroVisualAngle = t < 11.5 ? Math.PI / 2 : 0;
+      this.heroJump = t < 11.5 ? 0 : Math.abs(Math.sin(t * 13)) * 9;
+      this.handsRaised = t < 13 ? 1 : .35;
+      this.bodyLean = t < 11.5 ? -3 : -8;
+    } else {
+      const transition = Math.min(1, Math.max(0, (t - 15.9) / 1.2));
+      this.pharaohHeroX = this.playerX + 221 * (1 - transition);
+      this.pharaohX = 355;
+      this.heroVisualAngle = Math.PI / 2;
+      this.heroJump = 0;
+      this.handsRaised = 0;
+      this.bodyLean = 0;
+    }
+    const audienceSlots = [
+      [.04, 16], [.22, -42], [.78, -42], [.96, 16],
+      [.33, -75], [.67, -75], [.12, -4], [.88, -4],
+    ] as const;
+    let audienceIndex = 0;
+    for (const z of this.zombies.zombies) {
+      if (z.buried || z.crowdMotion?.kind === 'exit') continue;
+      const slot = audienceSlots[audienceIndex++];
+      z.applauding = t < 7.8 && slot !== undefined;
+      if (z.applauding && slot) {
+        z.x = this.width * slot[0];
+        z.y = this.groundY + slot[1];
+        z.direction = z.x < this.width / 2 ? 1 : -1;
+      }
+    }
+    const shoulder = heroShoulder(this.pharaohHeroX, this.pharaohHeroY - this.heroJump,
+      this.heroVisualAngle, this.bodyLean);
+    this.arm = solveArm(shoulder, { x: shoulder.x + 24, y: shoulder.y + 12 },
+      { x: shoulder.x + 12, y: shoulder.y + 4 }, HERO_SCALE);
+    this.whip.updateHandle(this.arm.wrist.x, this.arm.wrist.y, this.heroVisualAngle);
+    if (previousTime < 11 && t >= 11) {
+      this.atmosphere.addSonicCrack(this.playerX + 90, this.groundY - 65, '#9ef4ef');
+      if (this.settings.screenShake) this.atmosphere.triggerScreenShake(9);
+    }
+    if (previousTime < 14.6 && t >= 14.6) {
+      this.atmosphere.addSonicCrack(355, this.groundY - 12, '#b6f7ee');
+      if (this.settings.screenShake) this.atmosphere.triggerScreenShake(6);
+    }
+  }
+
+  private positionNoahBuilders() {
+    const builders = this.zombies.zombies.filter(z => z.stageBuilder && !z.buried);
+    const shipWidth = Math.min(this.width * .94, 520);
+    const left = this.width / 2 - shipWidth / 2;
+    const slots = [
+      { x: .07, y: -42 }, { x: .22, y: -100 }, { x: .38, y: -132 },
+      { x: .62, y: -132 }, { x: .78, y: -100 }, { x: .93, y: -42 },
+    ];
+    builders.forEach((z, i) => {
+      const slot = slots[i % slots.length];
+      z.formation = undefined;
+      z.crowdMotion = undefined;
+      z.x = left + shipWidth * slot.x;
+      z.y = this.groundY + slot.y + Math.sin(this.noahSceneTime * 4 + i) * 2;
+      z.direction = z.x < this.width / 2 ? 1 : -1;
+      z.building = true;
+    });
+  }
+
+  private walkToNoahBuilder(dt: number) {
+    const target = this.queuedTarget ?? this.activeTarget;
+    const destination = target?.stageBuilder
+      ? Math.max(50, Math.min(this.width - 50, target.x + (target.x < this.width / 2 ? 58 : -58)))
+      : this.playerX;
+    const distance = destination - this.noahHeroX;
+    const step = Math.sign(distance) * Math.min(Math.abs(distance), dt * 230);
+    this.noahHeroX += step;
+    this.noahHeroWalking = Math.abs(distance) > 8;
+  }
+
+  private boardNoahPassengers() {
+    const crowd = this.zombies.zombies.filter(z => !z.buried && z.crowdMotion?.kind !== 'exit');
+    const shipWidth = Math.min(this.width * .94, 520);
+    const left = this.width / 2 - shipWidth / 2;
+    const slots = [.1, .19, .28, .38, .62, .72, .81, .9];
+    crowd.forEach((z, i) => {
+      if (this.noahPassengers.has(z.id)) return;
+      this.noahPassengers.set(z.id, {
+        startX: z.x, startY: z.y,
+        deckX: left + shipWidth * slots[i % slots.length],
+        deckY: this.groundY - 112 - Math.floor(i / slots.length) * 27,
+        boardAt: .4 + i * .11,
+        side: i % 2 === 0 ? -1 : 1,
+      });
+      z.formation = undefined;
+      z.crowdMotion = undefined;
+    });
+  }
+
+  private updateNoahFinale(dt: number) {
+    this.noahFloodTime += dt;
+    const flood = this.noahFloodTime;
+    this.boardNoahPassengers();
+    const walkHome = this.playerX - this.noahHeroX;
+    this.noahHeroX += Math.sign(walkHome) * Math.min(Math.abs(walkHome), dt * 240);
+    for (const z of this.zombies.zombies) {
+      const passenger = this.noahPassengers.get(z.id);
+      if (!passenger) continue;
+      z.building = false;
+      if (passenger.ejectedAt !== undefined) {
+        const elapsed = flood - passenger.ejectedAt;
+        z.x = passenger.deckX + passenger.side * (elapsed * 135 + elapsed * elapsed * 45);
+        z.y = passenger.deckY - Math.sin(Math.min(1, elapsed / 1.15) * Math.PI) * 75 + elapsed * elapsed * 75;
+        z.direction = -passenger.side;
+      } else {
+        const progress = Math.max(0, Math.min(1, (flood - passenger.boardAt) / 1.65));
+        const eased = progress * progress * (3 - 2 * progress);
+        z.x = passenger.startX + (passenger.deckX - passenger.startX) * eased;
+        z.y = passenger.startY + (passenger.deckY - passenger.startY) * eased - Math.sin(Math.PI * progress) * 42;
+        z.direction = z.x < this.playerX ? 1 : -1;
+      }
+    }
+    const climb = Math.min(1, Math.max(0, (flood - 1.4) / 1.8));
+    this.noahHeroY = this.groundY - climb * 125 + (climb > 0 ? Math.sin(flood * 3) * 4 : 0);
+    this.heroJump = flood > 3.5 ? Math.abs(Math.sin(flood * 7)) * 8 : 0;
+    this.heroVisualAngle = Math.PI / 2 + (flood > 3.5 ? Math.sin(flood * 4) * .25 : 0);
+    this.handsRaised = flood > 3.5 ? .7 + Math.sin(flood * 7) * .2 : climb;
+    this.bodyLean = flood > 3.5 ? Math.sin(flood * 4) * 6 : 0;
+    const heroX = this.noahHeroX + (flood > 4 ? Math.sin(flood * .65) * 14 : 0);
+    const shoulder = heroShoulder(heroX, this.noahHeroY - this.heroJump,
+      this.heroVisualAngle, this.bodyLean);
+    this.arm = solveArm(shoulder, { x: shoulder.x + 30, y: shoulder.y - 12 },
+      { x: shoulder.x + 13, y: shoulder.y - 15 }, HERO_SCALE);
+    this.whip.updateHandle(this.arm.wrist.x, this.arm.wrist.y, this.heroVisualAngle);
+    const allBoarded = [...this.noahPassengers.values()].every(p => flood >= p.boardAt + 1.65);
+    if (flood > 4.5 && allBoarded) {
+      this.noahDeckWhipCooldown = Math.max(0, this.noahDeckWhipCooldown - dt);
+      const waiting = this.zombies.zombies.find(z => {
+        const passenger = this.noahPassengers.get(z.id);
+        return passenger && passenger.ejectedAt === undefined
+          && flood >= passenger.boardAt + 1.65;
+      });
+      const target = waiting ? this.noahPassengers.get(waiting.id) : undefined;
+      if (this.noahDeckWhipCooldown === 0 && this.whip.triggerSnapImpulse(
+        target?.deckX ?? heroX + 160, target ? target.deckY - 38 : this.noahHeroY - 110, 1.05, true, .9)) {
+        this.noahDeckWhipCooldown = target ? .78 : 1.25;
+        this.noahDeckSwings++;
+        this.noahDeckTargetId = waiting?.id ?? null;
+      }
+    }
+    const whipResult = this.whip.step(dt);
+    if (whipResult.isCrack && whipResult.crackPos) {
+      this.stats.totalCracks++;
+      this.atmosphere.addSonicCrack(whipResult.crackPos.x, whipResult.crackPos.y,
+        this.whip.config.glowColor);
+      if (this.noahDeckTargetId) {
+        const passenger = this.noahPassengers.get(this.noahDeckTargetId);
+        if (passenger && passenger.ejectedAt === undefined) {
+          passenger.ejectedAt = flood;
+          this.atmosphere.addSparks(passenger.deckX, passenger.deckY - 35, '#fbd88d', 7);
+        }
+        this.noahDeckTargetId = null;
+      }
+    }
+  }
+
   public update(dt: number) {
     if (this.isGameOver) return;
     soundEngine.advanceClock(dt);
@@ -441,7 +835,8 @@ export class GameEngine {
     if (!this.currentChat && this.chatQueue.length) {
       this.currentChat = { ...this.chatQueue.shift()!, until: soundEngine.audioTime + 3.4 };
     }
-    if (!this.tasbihMode && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)) this.processLiveTasks();
+    if (!this.tasbihMode && !this.noahSceneEnabled && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)
+      && !(this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END)) this.processLiveTasks();
     if (this.liveWhipBoostTime > 0) {
       this.liveWhipBoostTime = Math.max(0, this.liveWhipBoostTime - dt);
       if (this.liveWhipBoostTime === 0) this.liveWhipSpeed = 1;
@@ -449,8 +844,34 @@ export class GameEngine {
 
     // Advance the visible dance pose before aiming so collision and rendering agree.
     this.zombies.update(dt, this.playerX, this.groundY, this.atmosphere, () => {});
+    if (this.noahSceneEnabled) {
+      this.noahSceneTime += dt;
+      this.noahHitPulse = Math.max(0, this.noahHitPulse - dt);
+      if (this.noahFloodTime === 0) this.positionNoahBuilders();
+      if (soundEngine.noahConstructionState === 'ended' && this.noahFloodTime === 0) {
+        this.noahFloodTime = .001;
+        soundEngine.stopWhip();
+        this.queuedStrike = null;
+        this.queuedTarget = null;
+        this.activeTarget = null;
+      }
+      if (this.noahFloodTime > 0) {
+        this.updateNoahFinale(dt);
+        this.atmosphere.update(dt, this.width, this.height, true, this.groundY);
+        return;
+      }
+      if (soundEngine.noahConstructionState === 'loading') {
+        this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
+        return;
+      }
+    }
     if (this.camelSceneEnabled && this.camelSceneTime < 5.7) {
       this.updateCamelIntro(dt);
+      this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
+      return;
+    }
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) {
+      this.updatePharaohIntro(dt);
       this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
       return;
     }
@@ -491,18 +912,20 @@ export class GameEngine {
     const target = this.queuedStrike
       ? this.queuedTarget ? this.zombies.getHitTargets(this.queuedTarget)[1] : this.queuedStrike
       : this.activeTarget ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
+    if (this.noahSceneEnabled && this.noahFloodTime === 0) this.walkToNoahBuilder(dt);
+    const heroX = this.noahSceneEnabled ? this.noahHeroX : this.playerX;
     // Turn during recovery rather than waiting idle after every recording.
     const nextDancer = playing && !this.queuedStrike && previousAge >= previousAttack.peak+.08
       ? this.nextWhipTarget() : null;
     const currentContact = playing && previousAge < previousAttack.peak && this.activeTarget
       ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
     const turnTarget = currentContact ?? (nextDancer ? this.zombies.getHitTargets(nextDancer)[1] : target);
-    const desiredAngle = turnTarget ? Math.atan2(turnTarget.y-(this.groundY-65*HERO_SCALE),turnTarget.x-this.playerX) : this.aimAngle;
+    const desiredAngle = turnTarget ? Math.atan2(turnTarget.y-(this.groundY-65*HERO_SCALE),turnTarget.x-heroX) : this.aimAngle;
     let aligned: boolean;
-    if ((this.isRapidWhipActive || this.camelSceneEnabled) && this.queuedStrike?.automatic) {
+    if ((this.isRapidWhipActive || this.camelSceneEnabled || this.noahSceneEnabled) && this.queuedStrike?.automatic) {
       this.turning.angle = desiredAngle;
       this.turning.velocity = 0;
-      aligned = true;
+      aligned = !this.noahSceneEnabled || !this.noahHeroWalking;
     } else {
       aligned = this.turning.step(dt, desiredAngle);
     }
@@ -511,7 +934,7 @@ export class GameEngine {
     if (whipTarget) this.whip.aimAt(whipTarget.x,whipTarget.y);
     if (this.queuedStrike && target && aligned) {
       if (this.whip.triggerSnapImpulse(target.x,target.y,this.queuedStrike.power,
-        this.isRapidWhipActive || this.camelSceneEnabled || !this.queuedStrike.automatic,
+        this.isRapidWhipActive || this.camelSceneEnabled || this.noahSceneEnabled || !this.queuedStrike.automatic,
         this.effectiveRapidWhipSpeed)) {
         this.activeStrikeAutomatic = this.queuedStrike.automatic;
         this.activeTarget = this.queuedTarget;
@@ -522,7 +945,7 @@ export class GameEngine {
         this.queuedTarget = null;
         if (this.queuedStrike.automatic) this.autoIndex++;
         if (this.activeTarget) this.activeTarget.lastWhippedAt = soundEngine.audioTime;
-        const line = soundEngine.sayWhipTaunt();
+        const line = this.noahSceneEnabled ? null : soundEngine.sayWhipTaunt();
         if (line) this.heroLine = { text: line, until: soundEngine.audioTime + 3.5 };
         this.queuedStrike = null;
       }
@@ -543,7 +966,7 @@ export class GameEngine {
       : Math.min(1,(age-attack!.peak)/.45);
     const motion = attack ? strikeMotion(age,attack.peak,this.whip.strikePower,windup)
       : {extension:24,lift:0,lean:0};
-    const rapidStrike = (this.isRapidWhipActive || this.camelSceneEnabled) && attack && attack.prepStart === undefined
+    const rapidStrike = (this.isRapidWhipActive || this.camelSceneEnabled || this.noahSceneEnabled) && attack && attack.prepStart === undefined
       && age >= 0 && age < attack.duration;
     const rapidPhase = rapidStrike ? age / attack.duration : 0;
     if (rapidStrike) {
@@ -553,7 +976,7 @@ export class GameEngine {
       this.rapidDanceStep = Math.sin(Math.PI * 2 * rapidPhase) * 8;
     }
     this.bodyLean = motion.lean + (rapidStrike ? Math.sin(Math.PI * 2 * rapidPhase) * 3 : 0);
-    const shoulder = heroShoulder(this.playerX,this.groundY-this.heroJump,this.heroVisualAngle,this.bodyLean);
+    const shoulder = heroShoulder(heroX,this.groundY-this.heroJump,this.heroVisualAngle,this.bodyLean);
     const desiredWrist = { x: shoulder.x + Math.cos(this.heroVisualAngle)*motion.extension*HERO_SCALE,
       y: shoulder.y+(Math.sin(this.heroVisualAngle)*motion.extension-motion.lift)*HERO_SCALE };
     const elbowGuide = { x: shoulder.x+Math.sin(this.heroVisualAngle)*24*HERO_SCALE,
@@ -597,7 +1020,13 @@ export class GameEngine {
     }
 
     // Check Whip collisions with Zombies
-    if (whipResult.isCrack) this.checkCollisions(true, whipResult.tipSpeed);
+    if (whipResult.isCrack) {
+      if (this.noahSceneEnabled && this.activeTarget && this.noahFloodTime === 0) {
+        const torso = this.zombies.getHitTargets(this.activeTarget)[1];
+        this.handleZombieHit(this.activeTarget, 'torso', torso.x, torso.y,
+          this.aimAngle, true, true, whipResult.tipSpeed, this.whip.config.baseDamage);
+      } else if (!this.noahSceneEnabled) this.checkCollisions(true, whipResult.tipSpeed);
+    }
 
     // The full dance circle is created on restart; no additional spawning.
   }
@@ -950,7 +1379,9 @@ export class GameEngine {
     this.liveLikes = 0;
     this.liveWhipBoostTime = 0;
     this.liveWhipSpeed = 1;
-    this.zombies.zombies = [];
+    this.zombies.zombies = this.noahSceneEnabled
+      ? this.zombies.zombies.filter(z => z.stageBuilder)
+      : this.pharaohSceneEnabled ? this.zombies.zombies.filter(z => z.pharaohAudience) : [];
     this.waveZombiesSpawned = 0;
     this.autoIndex = 0;
     this.queuedStrike = null;
@@ -1048,7 +1479,9 @@ export class GameEngine {
 
   public snapAt(x: number, y: number, power = 1.25) {
     if (this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode
-      || (this.camelSceneEnabled && this.camelSceneTime < 5.7) || this.isGameOver) return false;
+      || (this.noahSceneEnabled && this.noahFloodTime > 0)
+      || (this.camelSceneEnabled && this.camelSceneTime < 5.7)
+      || (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) || this.isGameOver) return false;
     const closest = this.zombies.zombies.filter(z => !z.favorite && !z.buried && z.crowdMotion?.kind !== 'exit').flatMap(z =>
       this.zombies.getHitTargets(z).map(target => ({ z, target,
         distance: Math.hypot(target.x-x,target.y-y) - target.r }))
@@ -1066,6 +1499,7 @@ export class GameEngine {
 
   private nextWhipTarget() {
     const crowd = this.zombies.zombies.filter(z => !z.buried && !z.favorite
+      && (!this.noahSceneEnabled || this.noahFloodTime > 0 || z.stageBuilder)
       && z.crowdMotion?.kind !== 'exit' && z.crowdMotion?.kind !== 'enter' && !z.burialDragging);
     const eligible = crowd.filter(z => z.lastWhippedAt === undefined
       || soundEngine.audioTime - z.lastWhippedAt >= 1 + Math.min(14, (z.likes ?? 0) / 7));
@@ -1121,7 +1555,11 @@ export class GameEngine {
     z.isDead = false;
     z.health = z.maxHealth;
     this.danceCount++;
-    const line = soundEngine.sayZombieReaction();
+    if (this.noahSceneEnabled && this.noahFloodTime === 0) {
+      this.noahBuildHits = Math.min(NOAH_BUILD_HITS, this.noahBuildHits + 1);
+      this.noahHitPulse = .8;
+    }
+    const line = this.noahSceneEnabled ? null : soundEngine.sayZombieReaction();
     if (line) z.speechBubble = { text: line, timer: 3, maxTimer: 3 };
     this.atmosphere.addSparks(hitX, hitY, '#fbbf24', Math.round(3+this.whip.strikePower*4));
     this.comboCount++;
@@ -1213,6 +1651,9 @@ export class GameEngine {
    */
   public drawHunter(ctx: CanvasRenderingContext2D) {
     const camelIntro = this.camelSceneEnabled && this.camelSceneTime < 5.7;
+    const pharaohIntro = this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END;
+    const noahFinale = this.noahSceneEnabled && this.noahFloodTime > 0;
+    const noahBuilding = this.noahSceneEnabled && !noahFinale;
     const turnStrength = Math.min(1,Math.abs(this.turning.velocity)/1.5);
     const burialAction = this.burialScene.actionTime;
     const burialStep = this.captureSceneEnabled
@@ -1220,14 +1661,20 @@ export class GameEngine {
         : this.burialScene.walking ? Math.sin(this.burialScene.walkDistance / 19) * 12
           : burialAction >= this.burialScene.walkEnd && burialAction < this.burialScene.buryEnd
             ? Math.sin(burialAction * 12) * 3 : 0 : 0;
-    drawHero3D(ctx,camelIntro ? this.camelHeroX : this.captureSceneEnabled ? this.burialScene.heroX || this.playerX
+    drawHero3D(ctx,noahFinale ? this.noahHeroX + (this.noahFloodTime > 4 ? Math.sin(this.noahFloodTime * .65) * 14 : 0)
+      : noahBuilding ? this.noahHeroX
+      : pharaohIntro ? this.pharaohHeroX : camelIntro ? this.camelHeroX : this.captureSceneEnabled ? this.burialScene.heroX || this.playerX
       : this.bombSceneEnabled ? this.bombHeroX : this.playerX,
-      (camelIntro ? this.camelHeroY : this.bombSceneEnabled ? this.bombHeroY : this.captureSceneEnabled ? this.burialScene.heroY || this.groundY : this.groundY)-this.heroJump,this.heroVisualAngle,this.arm,
-      camelIntro ? Math.sin(this.camelSceneTime * 16) * 9 : this.captureSceneEnabled ? burialStep : this.bombSceneEnabled ? this.bombDanceStarted ? Math.sin((this.bombSceneTime - 7) * 9) * 8
+      (noahFinale ? this.noahHeroY : pharaohIntro ? this.pharaohHeroY : camelIntro ? this.camelHeroY : this.bombSceneEnabled ? this.bombHeroY : this.captureSceneEnabled ? this.burialScene.heroY || this.groundY : this.groundY)-this.heroJump,this.heroVisualAngle,this.arm,
+      noahBuilding && this.noahHeroWalking ? Math.sin(this.noahSceneTime * 15) * 10
+        : noahFinale && this.noahFloodTime > 3.5 ? Math.sin(this.noahFloodTime * 8) * 10
+        : pharaohIntro ? this.pharaohSceneTime < 2.5 ? 0 : Math.sin(this.pharaohSceneTime * (this.pharaohSceneTime < 7.8 ? 8 : 15)) * 10
+        : camelIntro ? Math.sin(this.camelSceneTime * 16) * 9 : this.captureSceneEnabled ? burialStep : this.bombSceneEnabled ? this.bombDanceStarted ? Math.sin((this.bombSceneTime - 7) * 9) * 8
         : Math.sin(this.bombSceneTime * 20) * (this.bombSceneTime < 2.58 || (this.bombSceneTime >= 5 && this.bombSceneTime < 7) ? 15 : 0)
         : this.isRapidWhipActive ? this.rapidDanceStep : Math.sin(this.turning.stepPhase)*3*turnStrength,
       this.bodyLean,this.handsRaised,this.bombSceneEnabled ? this.bombHeroScale : HERO_SCALE,
-      this.captureSceneEnabled && this.burialScene.walking ? Math.sin(this.burialScene.walkDistance / 19) * .7
+      noahBuilding && this.noahHeroWalking ? Math.sin(this.noahSceneTime * 15) * .6
+        : this.captureSceneEnabled && this.burialScene.walking ? Math.sin(this.burialScene.walkDistance / 19) * .7
         : this.bombSceneEnabled && this.bombSceneTime < 2.58 ? Math.sin(this.bombSceneTime * 20) : 0);
   }
 
@@ -1425,6 +1872,10 @@ export class GameEngine {
    */
   public render(ctx: CanvasRenderingContext2D, time: number) {
     ctx.save();
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime >= 7.8 && this.pharaohSceneTime < 13.6) {
+      ctx.translate(Math.sin(this.pharaohSceneTime * 29) * 1.2,
+        Math.cos(this.pharaohSceneTime * 23) * .8);
+    }
 
     // Apply Screen Shake
     if (this.settings.screenShake && this.atmosphere.screenShakeIntensity > 0) {
@@ -1435,6 +1886,14 @@ export class GameEngine {
     // 1. Draw Background, sky, fog, ground, decals (respecting TikTok Safe Area)
     this.atmosphere.drawBackground(ctx, this.width, this.height, this.bgImage, this.groundY,
       this.captureSceneEnabled ? { x: this.burialScene.cameraX, y: this.burialScene.cameraY } : undefined);
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) {
+      drawPharaohBackdrop(ctx, this.width, this.height, this.groundY, this.pharaohSceneTime,
+        this.pharaohBackdropImage, this.pharaohChaseImage);
+    }
+    if (this.noahSceneEnabled) {
+      drawNoahBackdrop(ctx, this.width, this.height,
+        this.noahBuildProgress, this.noahFloodTime, this.noahFloodImage);
+    }
     if (this.hellSceneEnabled) {
       ctx.fillStyle = 'rgba(145, 56, 14, .08)';
       ctx.fillRect(0, 0, this.width, this.height);
@@ -1454,25 +1913,66 @@ export class GameEngine {
 
     // 2. Draw Severed Limbs on Ground
     this.atmosphere.drawSeveredLimbs(ctx);
+    if (this.noahSceneEnabled) {
+      drawArk(ctx, this.width, this.groundY, this.noahBuildProgress,
+        this.noahFloodTime, this.noahHitPulse, this.noahArkImage);
+    }
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) {
+      drawRiver(ctx, this.width, this.groundY, this.pharaohSceneTime);
+      drawPharaoh(ctx, this.pharaohX, this.groundY, this.pharaohSceneTime,
+        this.pharaohCharacterImage, this.pharaohRunningImage);
+      drawPharaohCamel(ctx, this.pharaohCamelX, this.groundY, this.pharaohSceneTime,
+        this.pharaohCamelImage);
+    }
     this.drawBomb(ctx);
     if (this.captureSceneEnabled) this.burialScene.drawGround(ctx);
 
     // 3. Draw Zombies
-    this.zombies.drawZombies(ctx, this.groundY);
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < 7.8) {
+      this.zombies.drawZombies(ctx, this.groundY, 'back', z => z.applauding === true);
+    } else if (!this.pharaohSceneEnabled || this.pharaohSceneTime >= 16.1) {
+      this.zombies.drawZombies(ctx, this.groundY, 'back', this.noahSceneEnabled
+        ? z => this.noahFloodTime > 0
+          ? (this.noahPassengers.get(z.id)?.ejectedAt === undefined
+            || this.noahFloodTime - (this.noahPassengers.get(z.id)?.ejectedAt ?? 0) < 2.2)
+          : z.stageBuilder === true
+        : undefined);
+    }
     if (this.camelSceneEnabled && this.camelSceneTime < 5.7 && this.camelX < this.width + 170) {
       drawCamel(ctx, this.camelX, this.groundY, this.camelSceneTime);
     }
 
+    // Rising water covers the crowd while the hero climbs onto the ark.
+    if (this.noahSceneEnabled && this.noahFloodTime > 0) {
+      this.zombies.drawZombies(ctx, this.groundY, 'front', z =>
+        this.noahPassengers.get(z.id)?.ejectedAt === undefined
+          || this.noahFloodTime - (this.noahPassengers.get(z.id)?.ejectedAt ?? 0) < 2.2);
+      drawFloodWater(ctx, this.width, this.height, this.groundY, this.noahFloodTime);
+    }
+
     // 4. Draw Hunter
     this.drawHunter(ctx);
+    if (this.pharaohSceneEnabled) {
+      drawChaseDust(ctx, this.pharaohHeroX, this.pharaohX, this.groundY, this.pharaohSceneTime);
+    }
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) {
+      drawHeroStaff(ctx, this.pharaohHeroX, this.groundY - this.heroJump, this.pharaohSceneTime);
+    }
     this.drawTasbih(ctx);
 
-    this.zombies.drawZombies(ctx, this.groundY, 'front');
+    if (this.pharaohSceneEnabled && this.pharaohSceneTime < 7.8) {
+      this.zombies.drawZombies(ctx, this.groundY, 'front', z => z.applauding === true);
+    } else if ((!this.pharaohSceneEnabled || this.pharaohSceneTime >= 16.1)
+      && !this.noahSceneEnabled) {
+      this.zombies.drawZombies(ctx, this.groundY, 'front');
+    }
 
     // 5. Draw Whip
     if (this.captureSceneEnabled) this.burialScene.drawForeground(ctx, this.arm.wrist.x, this.arm.wrist.y);
     else if (this.bombSceneEnabled) this.drawBombBlast(ctx);
-    else if (!this.tasbihMode && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)) {
+    else if (!this.tasbihMode && !(this.noahSceneEnabled && this.noahFloodTime > 0 && this.noahFloodTime <= 3.2)
+      && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)
+      && !(this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END)) {
       this.whip.draw(ctx, time);
       this.drawGrip(ctx);
     }
@@ -1491,6 +1991,9 @@ export class GameEngine {
       this.settings.rainEffect,
       this.groundY
     );
+    if (this.noahSceneEnabled) {
+      drawStormRain(ctx, this.width, this.height, this.groundY, time / 1000, this.noahFloodTime);
+    }
 
     ctx.restore();
     ctx.restore();

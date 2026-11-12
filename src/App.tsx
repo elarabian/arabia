@@ -9,12 +9,19 @@ import { featureFlags } from './featureFlags';
 import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
-import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain } from 'lucide-react';
+import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain, Crown, Ship } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
 import graveyardUrl from './assets/images/gothic_graveyard_ruins_1794419017647.jpg';
 import crestUrl from './assets/images/zombie_hunter_crest_1794419032026.jpg';
+import pharaohPalaceUrl from './assets/images/pharaoh-palace.webp';
+import pharaohCharacterUrl from './assets/images/pharaoh-character.webp';
+import pharaohCamelUrl from './assets/images/pharaoh-camel.webp';
+import pharaohChaseUrl from './assets/images/pharaoh-chase.webp';
+import pharaohRunningUrl from './assets/images/pharaoh-running.webp';
+import noahArkUrl from './assets/images/noah-ark.webp';
+import noahFloodUrl from './assets/images/noah-flood.webp';
 export const ARABIAN_DESERT_BG_URL = saharaUrl;
 export const GRAVEYARD_BG_URL = graveyardUrl;
 const CREST_URL = crestUrl;
@@ -84,7 +91,11 @@ export default function App() {
   const engineRef = useRef<GameEngine | null>(null);
   if (!engineRef.current) {
     engineRef.current = new GameEngine(currentMap === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    engineRef.current.setPharaohAssets(pharaohPalaceUrl, pharaohCharacterUrl,
+      pharaohCamelUrl, pharaohChaseUrl, pharaohRunningUrl);
+    engineRef.current.setNoahAssets(noahArkUrl, noahFloodUrl);
     engineRef.current.setTikTokMode(true);
+    if (savedControl) applyControlSnapshot(engineRef.current, savedControl);
     if (obsMode) {
       engineRef.current.restartGame();
       const shake = Number(pageParams.get('shake'));
@@ -100,9 +111,10 @@ export default function App() {
       else if (scene === 'BURIAL') engineRef.current.setBurialScene(true);
       else if (scene === 'HELL') engineRef.current.setHellScene(true);
       else if (scene === 'CAMEL') engineRef.current.setCamelScene(true);
+      else if (scene === 'PHARAOH') engineRef.current.setPharaohScene(true);
+      else if (scene === 'NOAH') engineRef.current.setNoahScene(true);
       else if (scene === 'TASBIH') engineRef.current.setTasbihMode(true);
     }
-    if (savedControl) applyControlSnapshot(engineRef.current, savedControl);
   }
   const engine = engineRef.current;
 
@@ -496,13 +508,17 @@ export default function App() {
     publishControl({ rapidWhipSpeed: engine.rapidWhipSpeed });
   };
 
-  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL') => {
+  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL' | 'PHARAOH' | 'NOAH') => {
     engine.cancelLiveTasks();
     engine.setTasbihMode(scene === 'TASBIH');
-    if (scene === 'CAMEL') engine.setCamelScene(true);
+    if (scene === 'NOAH') engine.setNoahScene(true);
+    else if (scene === 'PHARAOH') engine.setPharaohScene(true);
+    else if (scene === 'CAMEL') engine.setCamelScene(true);
     else if (scene === 'BOMB') engine.setBombScene(true);
     else if (scene === 'BURIAL') engine.setBurialScene(true);
     else if (scene === 'HELL') engine.setHellScene(true);
+    else if (engine.noahSceneEnabled) engine.setNoahScene(false);
+    else if (engine.pharaohSceneEnabled) engine.setPharaohScene(false);
     else if (engine.camelSceneEnabled) engine.setCamelScene(false);
     else if (engine.hellSceneEnabled) engine.setHellScene(false);
     else if (engine.burialSceneEnabled) engine.setBurialScene(false);
@@ -775,9 +791,9 @@ export default function App() {
             <button
               type="button"
               aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled}
+              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled}
               onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled
                 ? 'border-amber-500 bg-amber-600 text-stone-950'
                 : 'border-stone-700 bg-stone-900 text-stone-300'}`}
             >
@@ -829,8 +845,30 @@ export default function App() {
               <Mountain className="h-3.5 w-3.5 shrink-0" />
               <span className="rapid-whip-copy">Deve</span>
             </button>
+            <button type="button" aria-label="Firavun sahnesi" aria-pressed={engine.pharaohSceneEnabled}
+              onClick={() => changeScene('PHARAOH')}
+              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.pharaohSceneEnabled
+                ? 'border-cyan-300 bg-cyan-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Crown className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Firavun · Nehir</span>
+            </button>
+            <button type="button" aria-label="Nuh'un Gemisi sahnesi" aria-pressed={engine.noahSceneEnabled}
+              onClick={() => changeScene('NOAH')}
+              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.noahSceneEnabled
+                ? 'border-sky-300 bg-sky-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Ship className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Nuh'un Gemisi</span>
+            </button>
           </div>
-          {engine.camelSceneEnabled ? (
+          {engine.noahSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-sky-300">
+              <Ship className="h-4 w-4" /><span className="text-xs font-bold">Nuh'un Gemisi · {Math.round(engine.noahBuildProgress * 100)}%</span>
+            </div>
+          ) : engine.pharaohSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-cyan-300">
+              <Crown className="h-4 w-4" /><span className="text-xs font-bold">Firavun Sahnesi</span>
+            </div>
+          ) : engine.camelSceneEnabled ? (
             <div className="rapid-whip-copy flex items-center gap-2 text-amber-300">
               <Mountain className="h-4 w-4" /><span className="text-xs font-bold">Deve Sahnesi</span>
             </div>

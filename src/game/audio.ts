@@ -3,6 +3,7 @@ import whipUrl from '../../sounds/whip.mp3?url';
 import backgroundUrl from '../../sounds/background.mp3?url';
 import heroUrl from '../../sounds/hero.mp3?url';
 import bombUrl from '../../sounds/bomb.mp3?url';
+import canlaninUrl from '../../sounds/canlanin.mp3?url';
 
 const BACKGROUND_VOLUME = 0.8;
 const WHIP_VOLUME_MULTIPLIER = 2;
@@ -61,6 +62,12 @@ class SoundEngine {
   private heroSource: AudioBufferSourceNode | null = null;
   private bombBuffer: AudioBuffer | null = null;
   private bombSource: AudioBufferSourceNode | null = null;
+  private noahBuffer: AudioBuffer | null = null;
+  private noahSource: AudioBufferSourceNode | null = null;
+  private noahToken = 0;
+  private noahStartedAt = 0;
+  private noahDuration = 39.18365;
+  public noahConstructionState: 'idle' | 'loading' | 'playing' | 'ended' = 'idle';
   private whipLoaded: boolean = false;
   private backgroundBuffer: AudioBuffer | null = null;
   private backgroundSource: AudioBufferSourceNode | null = null;
@@ -87,6 +94,12 @@ class SoundEngine {
     this.lastContextTime = now;
     this.clockIsAdvancing = elapsed > 0;
     this.timeline += elapsed > 0 && elapsed <= .1 ? elapsed : Math.max(0, Math.min(dt, .05));
+    if (this.noahConstructionState === 'playing'
+      && this.timeline - this.noahStartedAt >= this.noahDuration + .15) {
+      this.noahConstructionState = 'ended';
+      try { this.noahSource?.stop(); } catch { /* The source may have ended already. */ }
+      this.noahSource = null;
+    }
     if (this.pendingWhip && this.attack && this.timeline >= this.attack.start) {
       const pending = this.pendingWhip;
       this.pendingWhip = null;
@@ -302,13 +315,17 @@ class SoundEngine {
             if (!response.ok) throw new Error('bomb.mp3 yüklenemedi');
             this.bombBuffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
           }).catch(error => console.warn('Bomba sesi yüklenemedi:', error)),
+          fetch(canlaninUrl).then(async response => {
+            if (!response.ok) throw new Error('canlanin.mp3 yüklenemedi');
+            this.noahBuffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
+          }).catch(error => console.warn('Gemi inşaatı sesi yüklenemedi:', error)),
           fetch(backgroundUrl).then(async response => {
             if (!response.ok) throw new Error('background.mp3 yüklenemedi');
             this.backgroundBuffer = await this.ctx!.decodeAudioData(await response.arrayBuffer());
             this.bassBeats = findBassBeats(this.backgroundBuffer);
             this.startBackgroundSource();
           }).catch(error => console.warn('Arka plan müziği yüklenemedi:', error)),
-          ...Object.entries(dialogueAssets).filter(([path]) => !['whip.mp3','background.mp3','hero.mp3','dialogue-preview.mp3','voice-comparison.mp3','ahhh-preview.mp3'].includes(path.split('/').pop()!)).map(async ([path,url]) => {
+          ...Object.entries(dialogueAssets).filter(([path]) => !['whip.mp3','background.mp3','hero.mp3','canlanin.mp3','dialogue-preview.mp3','voice-comparison.mp3','ahhh-preview.mp3'].includes(path.split('/').pop()!)).map(async ([path,url]) => {
           try {
             const response = await fetch(url);
             if (!response.ok) return;
@@ -323,6 +340,56 @@ class SoundEngine {
   }
 
   public get audioTime() { return this.timeline; }
+
+  public startNoahConstruction() {
+    this.stopNoahConstruction();
+    const token = this.noahToken;
+    this.noahConstructionState = 'loading';
+    const start = () => {
+      if (token !== this.noahToken) return;
+      this.noahDuration = this.noahBuffer?.duration ?? 39.18365;
+      this.noahStartedAt = this.audioTime;
+      if (this.ctx && this.noahBuffer && this.sfxGain) {
+        try {
+          const source = this.ctx.createBufferSource();
+          source.buffer = this.noahBuffer;
+          source.connect(this.sfxGain);
+          source.onended = () => {
+            source.disconnect();
+            if (this.noahSource === source && token === this.noahToken) {
+              this.noahSource = null;
+              this.noahConstructionState = 'ended';
+            }
+          };
+          source.start();
+          this.noahSource = source;
+          this.noahConstructionState = 'playing';
+          return;
+        } catch (error) { console.warn('Gemi inşaatı sesi başlatılamadı:', error); }
+      }
+      // Keep the scene playable if browser audio is unavailable.
+      this.noahConstructionState = 'playing';
+    };
+    if (this.noahBuffer || typeof window === 'undefined'
+      || !(window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)) {
+      start();
+    } else {
+      void this.prepare().then(start).catch(start);
+    }
+  }
+
+  public stopNoahConstruction() {
+    this.noahToken++;
+    this.noahConstructionState = 'idle';
+    try { this.noahSource?.stop(); } catch { /* The source may have ended already. */ }
+    this.noahSource = null;
+  }
+
+  public getNoahConstructionProgress() {
+    if (this.noahConstructionState === 'ended') return 1;
+    if (this.noahConstructionState === 'loading' || this.noahConstructionState === 'idle') return 0;
+    return Math.max(0, Math.min(1, (this.audioTime - this.noahStartedAt) / this.noahDuration));
+  }
 
   private startBackgroundSource() {
     if (!this.backgroundStarted || this.backgroundSource || !this.backgroundBuffer || !this.backgroundGain || !this.ctx) return;

@@ -332,8 +332,71 @@ try {
   const whipSnapshot=parseControlSnapshot({scene:'WHIP'});
   applyControlSnapshot(camelGame,whipSnapshot);
   assert.equal(camelGame.camelSceneEnabled,false,'remote scene control leaves the camel scene');
+  const pharaohGame=new GameEngine();pharaohGame.restartGame();
+  pharaohGame.addLiveViewer('pharaoh-a','A');
+  pharaohGame.setPharaohScene(true);
+  assert.equal(pharaohGame.zombies.zombies.filter(z=>z.pharaohAudience).length,7,
+    'the Pharaoh scene fills empty audience places with clapping zombies');
+  pharaohGame.update(2);
+  assert.equal(soundEngine.attack,null,'the camel entrance does not start whipping');
+  assert.ok(pharaohGame.pharaohHeroY<pharaohGame.groundY-60,
+    'the hero is visibly riding the camel on arrival');
+  pharaohGame.restartGame();
+  assert.equal(pharaohGame.pharaohSceneTime,0,'restarting replays the full Pharaoh story');
+  assert.equal(captureControlSnapshot(pharaohGame,'DESERT','test').scene,'PHARAOH');
+  assert.equal(parseControlSnapshot({scene:'PHARAOH'})?.scene,'PHARAOH');
+  for(let frame=0;frame<60*6;frame++) pharaohGame.update(1/60);
+  assert.ok(pharaohGame.zombies.zombies.some(z=>z.applauding),
+    'viewer zombies clap while the hero and Pharaoh dance');
+  assert.equal(soundEngine.attack,null,'the dance does not start whipping');
+  for(let frame=0;frame<60*7;frame++) pharaohGame.update(1/60);
+  assert.equal(soundEngine.attack,null,'the chase and river crossing do not start whipping early');
+  assert.ok(pharaohGame.pharaohHeroX>pharaohGame.playerX+30,
+    'the hero crosses the parted river toward the far bank');
+  for(let frame=0;frame<60*5;frame++) pharaohGame.update(1/60);
+  assert.ok(pharaohGame.pharaohSceneTime>=17.1 && soundEngine.attack,
+    'whipping resumes on the far bank after Pharaoh drowns');
+  pharaohGame.setPharaohScene(true);
+  assert.equal(pharaohGame.pharaohSceneTime,0,'selecting Pharaoh again replays the scene');
+  applyControlSnapshot(pharaohGame,whipSnapshot);
+  assert.equal(pharaohGame.pharaohSceneEnabled,false,'remote control leaves the Pharaoh scene');
+  assert.equal(pharaohGame.zombies.zombies.some(z=>z.pharaohAudience),false,
+    'temporary Pharaoh spectators leave with the scene');
+  applyControlSnapshot(pharaohGame,parseControlSnapshot({scene:'PHARAOH'}));
+  assert.equal(pharaohGame.pharaohSceneEnabled,true,'remote control starts the Pharaoh scene');
+  soundEngine.playThunder=()=>{};
+  const noahGame=new GameEngine();noahGame.restartGame();noahGame.setNoahScene(true);
+  assert.equal(noahGame.zombies.zombies.filter(z=>z.stageBuilder).length,6,
+    'the ark scene has builders even when no viewers are connected');
+  assert.equal(captureControlSnapshot(noahGame,'DESERT','test').scene,'NOAH');
+  assert.equal(parseControlSnapshot({scene:'NOAH'})?.scene,'NOAH');
+  let maxNoahWalk=0;
+  for(let frame=0;frame<60*36;frame++) {
+    noahGame.update(1/60);
+    maxNoahWalk=Math.max(maxNoahWalk,Math.abs(noahGame.noahHeroX-noahGame.playerX));
+  }
+  assert.ok(noahGame.noahBuildHits>8,'the hero keeps whipping builder zombies throughout the recording');
+  assert.ok(maxNoahWalk>20,
+    'the hero walks between separate ark workstations while whipping');
+  assert.ok(new Set(noahGame.zombies.zombies.filter(z=>z.stageBuilder).map(z=>Math.round(z.x/30))).size>=5,
+    'builders work at separate places around the ark');
+  assert.equal(noahGame.noahFloodTime,0,'construction continues while canlanin.mp3 is playing');
+  assert.ok(noahGame.noahBuildProgress>0 && noahGame.noahBuildProgress<1);
+  for(let frame=0;frame<60*5 && noahGame.noahFloodTime===0;frame++) noahGame.update(1/60);
+  assert.ok(noahGame.noahFloodTime>0,'rain and flooding start after the recording ends');
+  assert.equal(noahGame.noahBuildProgress,1,'the ark finishes when the recording ends');
+  for(let frame=0;frame<60*6;frame++) noahGame.update(1/60);
+  assert.ok(noahGame.noahHeroY<noahGame.groundY-100,
+    'the hero reaches the ark deck and dances above the flood');
+  assert.ok(noahGame.noahDeckSwings>0,'the hero swings the whip on the completed ark');
+  assert.ok([...noahGame.noahPassengers.values()].some(p=>p.ejectedAt!==undefined),
+    'the hero whips boarded zombies off the ark');
+  applyControlSnapshot(noahGame,whipSnapshot);
+  assert.equal(noahGame.noahSceneEnabled,false,'remote control leaves the ark scene');
+  assert.equal(noahGame.zombies.zombies.some(z=>z.stageBuilder),false,
+    'temporary builder zombies leave with the ark scene');
   if(priorWindow===undefined)delete globalThis.window;else globalThis.window=priorWindow;
-  console.log('PASS TikTok JOIN/LIKE/CHAT/GIFT events, named targets, queued scenes, rescue, RIP stones and whip boost.');
+  console.log('PASS TikTok events, named targets, camel, Pharaoh, ark construction and flood finale.');
 } finally {
   await rm(dir, { recursive: true, force: true });
   if (originalFlag === undefined) delete process.env.VITE_TIKTOK_ENABLED;

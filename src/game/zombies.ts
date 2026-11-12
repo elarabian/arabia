@@ -121,6 +121,8 @@ export class ZombieManager {
     const departed = new Set<Zombie>();
     // Each dancer owns a permanent ring slot. No attraction to the player's feet.
     for (const z of this.zombies) {
+      z.applauding = false;
+      z.building = false;
       z.confusedTimer = Math.max(0, (z.confusedTimer ?? 0) - dt);
       z.speechCooldown = Math.max(0, z.speechCooldown - dt);
       if (z.speechBubble) {
@@ -252,8 +254,9 @@ export class ZombieManager {
     ctx.restore();
   }
 
-  public drawZombies(ctx: CanvasRenderingContext2D, groundY: number, layer: 'back' | 'front' = 'back') {
-    for (const z of [...this.zombies].sort((a,b) => a.y-b.y)) {
+  public drawZombies(ctx: CanvasRenderingContext2D, groundY: number,
+    layer: 'back' | 'front' = 'back', filter?: (z: Zombie) => boolean) {
+    for (const z of [...this.zombies].filter(z => !filter || filter(z)).sort((a,b) => a.y-b.y)) {
       if (z.buried) continue;
       if ((layer === 'back') !== (z.y <= groundY)) continue;
       ctx.save();
@@ -267,12 +270,15 @@ export class ZombieManager {
         continue;
       }
       const running = z.burialFleeing === true;
-      const dancing = !running && z.bowTimer <= 0 && (z.blastAngle === undefined || (z.blastDelay ?? 0) > 0);
+      const applauding = z.applauding === true;
+      const building = z.building === true;
+      const dancing = !applauding && !building && !running && z.bowTimer <= 0
+        && (z.blastAngle === undefined || (z.blastDelay ?? 0) > 0);
       const dragged = z.burialDragging === true;
       const flying = z.blastAngle !== undefined && z.vy !== 0 && (z.blastDelay ?? 0) <= 0;
       const bow = bowAmount(z);
       const crawler = z.leftLeg.severed || z.rightLeg.severed || z.type === 'CRAWLER';
-      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 13 : running ? 7 : dragged ? 5 : 4);
+      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 13 : applauding || building ? 3 : running ? 7 : dragged ? 5 : 4);
       const eye = z.isBurning ? '#fb923c' : z.type === 'BOSS' ? '#ef4444' : z.type === 'SPITTER' ? '#a3e635' : '#e2e8f0';
       if (z.blastGroundY !== undefined) {
         const height = Math.max(0, z.blastGroundY - z.y);
@@ -288,6 +294,9 @@ export class ZombieManager {
         ctx.translate(0, -47); ctx.rotate(z.blastAngle);
         ctx.scale(1 + squash * .16, 1 - squash * .24);
         ctx.translate(0, 47);
+      } else if (applauding || building) {
+        ctx.translate(0, -Math.abs(Math.sin(z.walkCycle * 2)) * 3);
+        ctx.rotate(Math.sin(z.walkCycle) * .06);
       } else if (dancing) {
         ctx.translate(0, -Math.abs(Math.sin(z.walkCycle)) * 12);
         ctx.rotate(Math.sin(z.walkCycle * .5) * .2);
@@ -323,18 +332,24 @@ export class ZombieManager {
         if (part.severed) continue;
         const armSide = offset < 0 ? -1 : 1;
         const flail = flying ? Math.sin((z.blastFlail ?? 0) + armSide * 1.5) * 12 : 0;
-        const elbowX = flying ? armSide * (30 + flail * .35) : bow > 0 ? armSide * 14 : dancing ? armSide * 27 : dragged || running ? armSide * 20 : -25;
-        const elbowY = flying ? -50 - flail : bow > 0 ? -55 : dancing ? -68 + sway : dragged || running ? -52 + sway : -57 + sway;
-        const handX = flying ? armSide * (40 + flail * .6) : bow > 0 ? armSide * 10 : dancing ? armSide * 36 : dragged || running ? armSide * 30 : -35;
-        const handY = flying ? -42 - flail * 1.4 : bow > 0 ? -43 : dancing ? -80 + sway : dragged || running ? -45 + sway : -61 + sway;
+        const clapGap = 4 + Math.abs(Math.sin(z.walkCycle * 2.5)) * 11;
+        const elbowX = flying ? armSide * (30 + flail * .35) : bow > 0 ? armSide * 14 : building ? armSide * 24 : applauding ? armSide * 25 : dancing ? armSide * 27 : dragged || running ? armSide * 20 : -25;
+        const elbowY = flying ? -50 - flail : bow > 0 ? -55 : building ? -64 : applauding ? -64 : dancing ? -68 + sway : dragged || running ? -52 + sway : -57 + sway;
+        const handX = flying ? armSide * (40 + flail * .6) : bow > 0 ? armSide * 10 : building ? armSide * 35 : applauding ? armSide * clapGap : dancing ? armSide * 36 : dragged || running ? armSide * 30 : -35;
+        const handY = flying ? -42 - flail * 1.4 : bow > 0 ? -43 : building ? -86 + Math.sin(z.walkCycle * 2) * 15 : applauding ? -57 : dancing ? -80 + sway : dragged || running ? -45 + sway : -61 + sway;
         ctx.strokeStyle='#17181c'; ctx.lineWidth=11; ctx.lineCap='round';
         ctx.beginPath(); ctx.moveTo(offset,-69);
         ctx.lineTo(elbowX, elbowY);
         ctx.lineTo(handX, handY); ctx.stroke();
         ctx.strokeStyle='#838578'; ctx.lineWidth=5;
         ctx.beginPath(); ctx.moveTo(handX, handY);
-        ctx.lineTo(flying ? handX + armSide * 7 : bow > 0 ? armSide*10 : dancing ? armSide*43 : dragged || running ? handX+armSide*7 : -42,
-          flying ? handY + 5 : bow > 0 ? -39 : dancing ? -79+sway : dragged || running ? handY+4 : -60+sway); ctx.stroke();
+        ctx.lineTo(flying ? handX + armSide * 7 : bow > 0 ? armSide*10 : building ? handX + armSide * 4 : applauding ? handX - armSide * 2 : dancing ? armSide*43 : dragged || running ? handX+armSide*7 : -42,
+          flying ? handY + 5 : bow > 0 ? -39 : building ? handY - 3 : applauding ? -53 : dancing ? -79+sway : dragged || running ? handY+4 : -60+sway); ctx.stroke();
+        if (building && armSide > 0) {
+          ctx.strokeStyle = '#a3703e'; ctx.lineWidth = 4;
+          ctx.beginPath(); ctx.moveTo(handX, handY); ctx.lineTo(handX + 7, handY - 23); ctx.stroke();
+          ctx.fillStyle = '#8b5e38'; ctx.fillRect(handX - 4, handY - 27, 23, 8);
+        }
       }
       if (!z.head.severed) {
         ctx.fillStyle='#0d0e11'; ctx.beginPath(); ctx.ellipse(0,-91,17,23,0,0,Math.PI*2); ctx.fill();
@@ -355,6 +370,10 @@ export class ZombieManager {
         ctx.scale(-z.direction,1);
         ctx.fillStyle='#fbbf24'; ctx.font='bold 21px sans-serif';
         ctx.fillText('♪', 22, -116 + Math.sin(z.walkCycle)*5);
+      }
+      if (applauding && Math.abs(Math.sin(z.walkCycle * 2.5)) < .25) {
+        ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 17px sans-serif';
+        ctx.fillText('✦', -5, -52);
       }
       ctx.restore();
       if (z.viewerName) {

@@ -34,13 +34,18 @@ def spans(path):
     if length-cursor>.07:result.append((max(0,cursor-.025),length))
     return result
 
-def edit_piece(source,start,end,out,pitch=1.,tempo=1.,strained=False):
+def edit_piece(source,start,end,out,pitch=1.,tempo=1.,strained=True):
     # Preserve speech clarity: only cut at measured quiet boundaries.
     filters=[f'atrim=start={start}:end={end}','asetpts=PTS-STARTPTS',
              f'asetrate={44100*pitch}', 'aresample=44100', f'atempo={tempo/pitch}',
              'highpass=f=85', 'equalizer=f=2100:t=q:w=0.8:g=2.0',
-             "volume='1.1+0.18*sin(2*PI*2.2*t)':eval=frame"]
-    if strained:filters+=['tremolo=f=6.5:d=0.14','vibrato=f=5.8:d=0.12']
+             "volume='1.15+0.25*sin(2*PI*3.0*t)':eval=frame"]
+    if strained:
+        # Trembling, strained delivery: faster/deeper tremolo+vibrato plus a
+        # touch of soft-clip rasp for a pained edge, still intelligible.
+        filters+=['tremolo=f=7.5:d=0.22','vibrato=f=6.5:d=0.2',
+                   'volume=1.6','asoftclip=type=tanh:param=0.6','volume=0.625',
+                   'aexciter=amount=1.4']
     filters+=['afade=t=in:d=0.008','areverse','afade=t=in:d=0.014','areverse']
     run(['ffmpeg','-v','error','-y','-i',str(source),'-af',','.join(filters),'-ar','44100','-ac','1',str(out)])
 
@@ -76,23 +81,27 @@ def sustained_a(source,out,seconds=.85):
                 output[dest]+=vowel[center+offset]*weight
                 weights[dest]+=weight
         t=position/size
-        pitch=1.02+.09*math.sin(math.pi*t)+.012*math.sin(2*math.pi*5*t)
+        # Scream contour: a sharp pitch spike on attack that swoops down into
+        # a trembling sustain, instead of the earlier near-flat drone.
+        pitch=1.1+.55*math.exp(-5*t)+.05*math.sin(2*math.pi*7*t)
         position+=period/pitch;grain+=1
     result=array.array('h')
     for i in range(size):
         t=i/rate
-        envelope=min(1,t/.025)*min(1,(seconds-t)/.16)
-        envelope*=.92+.08*math.sin(2*math.pi*5.2*t)
+        envelope=min(1,t/.02)*min(1,(seconds-t)/.16)
+        envelope*=.86+.14*math.sin(2*math.pi*6.5*t)
         value=output[i]/max(.1,weights[i])*envelope
         result.append(round(max(-.98,min(.98,value))*32767))
     with wave.open(str(out),'wb') as wav:
         wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(rate);wav.writeframes(result.tobytes())
 
 def combine(parts,output,work,name):
+    # Match canlanin.mp3's production standard: 44.1kHz/stereo/320kbps,
+    # mastered close to its -0.5dB true peak instead of a quieter TTS level.
     listing=work/f'{name}.txt'
     listing.write_text('\n'.join(f"file '{p}'" for p in parts))
     run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-af',
-         'loudnorm=I=-17:TP=-2:LRA=9','-ar','44100','-ac','1','-codec:a','libmp3lame','-b:a','192k',str(output)])
+         'loudnorm=I=-14:TP=-1:LRA=9','-ar','44100','-ac','2','-codec:a','libmp3lame','-b:a','320k',str(output)])
     d=duration(output)
     if not .3<d<45:raise RuntimeError(f'Invalid output duration: {output.name}')
     log=run(['ffmpeg','-hide_banner','-i',str(output),'-af','volumedetect','-f','null','-']).stderr
@@ -134,19 +143,27 @@ def main():
             elif filename=='ahhh_yandim_habibi.mp3':
                 ranges=ranges[1:] # Discard the entire mispronounced interjection.
             elif filename=='ahhh_uhhh.mp3':
-                ranges=ranges[1:2] # Keep only the middle 'uh'; replace both 'ah' sounds.
+                # tr-TR-EmelNeural mispronounces the elongated 'uhhh' interjection as a
+                # spoken word (Google STT hears it as "hey hey", i.e. giggling, not a
+                # moan). Skip the TTS render for this word entirely and build the
+                # middle groan from the same real vowel grains as the 'ahhh' bursts,
+                # pitched down instead of up.
+                ranges=[]
             if filename!='habibi_come_to_dubai.mp3':
                 prefix=work/f'{i}-exclamation.wav'
-                edit_piece(ah,0,.85,prefix,pitch=1+(i%3)*.015,tempo=.94+(i%2)*.08)
+                edit_piece(ah,0,.85,prefix,pitch=1.05+(i%3)*.05,tempo=.9+(i%2)*.1)
                 parts += [prefix,short]
             for j,(start,end) in enumerate(ranges):
                 target=work/f'{i}-{j}.wav'
-                pitch=1.015+(i%3)*.018
-                tempo=1.12+(j%2)*.04
-                edit_piece(source,start,end,target,pitch,tempo,strained=filename=='ahhh_uhhh.mp3')
+                pitch=1.03+(i%3)*.035
+                tempo=1.1+(j%2)*.05
+                edit_piece(source,start,end,target,pitch,tempo)
                 if parts and parts[-1]!=short:parts.append(short)
                 parts.append(target)
-            if filename=='ahhh_uhhh.mp3':parts += [short,ah]
+            if filename=='ahhh_uhhh.mp3':
+                moan=work/f'{i}-moan.wav'
+                edit_piece(ah,0,.75,moan,pitch=.78,tempo=1.05)
+                parts += [moan,short,ah]
             candidate=work/c['filename']
             d,peak=combine(parts,candidate,work,f'{i}-parts')
             results.append((candidate,c,d,peak))
@@ -160,8 +177,8 @@ def main():
         for candidate,c,_,_ in results[:2]:
             original=work/f'original-{candidate.stem}.wav'
             edited=work/f'edited-{candidate.stem}.wav'
-            run(['ffmpeg','-v','error','-y','-i',str(ORIGINALS/c['filename']),'-ar','44100','-ac','1',str(original)])
-            run(['ffmpeg','-v','error','-y','-i',str(candidate),str(edited)])
+            run(['ffmpeg','-v','error','-y','-i',str(ORIGINALS/c['filename']),'-ar','44100','-ac','2',str(original)])
+            run(['ffmpeg','-v','error','-y','-i',str(candidate),'-ar','44100','-ac','2',str(edited)])
             comparison += [original,pause,edited,pause]
         combine(comparison,work/'voice-comparison.mp3',work,'comparison')
         for candidate,c,d,peak in results:
@@ -171,8 +188,12 @@ def main():
             print(f"{c['filename']}: {d:.2f}s, peak {peak:.1f}dB")
         for filename in ['dialogue-preview.mp3','voice-comparison.mp3','ahhh-preview.mp3']:
             shutil.copy2(work/filename,SOUNDS/filename)
+    manifest['format'].update(bitrate_kbps=320,channels=2)
     manifest.update(status='edited_requires_listening_review',
-      postprocessing='Removed mispronounced ah interjections. Sustained only the open /a/ nucleus from yandım using pitch-synchronous overlap-add; no ey transition. Short gaps, varied tempo, normalized output. Offline edit, not newly acted speech.',
+      postprocessing='Removed mispronounced ah interjections. Sustained only the open /a/ nucleus from yandım using pitch-synchronous overlap-add; no ey transition (scream-contour pitch spike, not a flat drone). '
+        'Trembling, pained delivery on every clip: tremolo+vibrato, soft-clip rasp and harmonic exciter, plus wider per-clip pitch/tempo variation. '
+        'Mastered to canlanin.mp3\'s production standard (44.1kHz/stereo/320kbps, ~-17dB integrated loudness, -1dB true peak) instead of the thinner mono/192kbps TTS output. '
+        'Offline edit, not newly acted speech.',
       original_directory='original-dialogues')
     (SOUNDS/'dialogue-production.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
 
