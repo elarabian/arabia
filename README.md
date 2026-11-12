@@ -12,7 +12,7 @@ TikTok LIVE bağlantısı oyun sayfası açılınca `ersanyakit` hesabı için o
 
 OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın. Kaynak boyutunu **1080×1920** ayarlayın. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
 
-`http://game.local`, `http://game.local/game`, `http://game.local/control` ve aynı `test.local` yollarını portsuz kullanmak için macOS hosts dosyasına `127.0.0.1 game.local test.local` satırını yönetici yetkisiyle ekleyin. Ardından `sudo npm run dev:game-local` komutunu çalıştırın. `npm run dev` komutu kendi portunda çalışmaya devam eder. Bu `.local` adları yalnızca bu bilgisayarda çözülür; başka bir cihaz veya LIVE Studio için yayınlanan HTTPS adresini kullanın.
+Yerel HTTPS için macOS hosts dosyasında `127.0.0.1 game.local test.local` satırı olmalı. `brew install mkcert` ve `npm run setup:local-ssl` komutlarını bir kez çalıştırın; sertifika yerel güven deposuna eklenir ve `.cert/` klasörüne yazılır. Ardından `sudo env "PATH=$PATH" npm run dev:game-local` komutuyla 443 portunda sunucuyu başlatın. `https://game.local`, `https://game.local/game`, `https://game.local/control` ve aynı `test.local` yolları portsuz açılır. Normal `npm run dev` komutu kendi portunda çalışmaya devam eder. Bu `.local` adları yalnızca bu bilgisayarda çözülür. TikTok LIVE Studio yerel adresleri reddediyorsa yerel SSL bunu değiştirmez; yayın için Vercel HTTPS adresini kullanın.
 
 TikTok LIVE Studio'da eski yatay ekran/pencere yakalama kaynağını kaldırın. Yeni **Link/Bağlantı** kaynağına `/game` adresini ekleyin, **Özel çözünürlük** seçeneğini açıp genişliği **1080**, yüksekliği **1920** yapın. Kaynağı sahneye sığdırın; **Uzat** seçeneği yatay görüntüyü dikey yönde bozacaktır.
 
@@ -32,7 +32,11 @@ Environment Variables bölümüne şunları ekleyin ve yeniden deploy edin:
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST anahtarı |
 | `CONTROL_SECRET` | Uzun, rastgele kontrol anahtarı |
 
-Vercel'de kontrol sayfasını `/control?key=CONTROL_SECRET_DEĞERİ` adresinden açın. Paneldeki OBS bağlantısı aynı anahtarı oyun adresine ekler. API, oyun durumunu saniyede bir eşitler; aynı tarayıcıdaki kontroller ayrıca anında aktarılır.
+Eski Vercel KV entegrasyonunda `KV_REST_API_URL` ve `KV_REST_API_TOKEN` adları kullanılıyorsa kontrol API'si bunları da kabul eder. Canlı `/api/control` 503 dönerse Redis bağlantı değişkenleri eksiktir; iki ayrı tarayıcı arasında sahne eşitlemesi bunlar olmadan çalışmaz.
+
+Vercel'de kontrol sayfasını `/control` adresinden açın ve **Vercel kontrol anahtarı** alanına `CONTROL_SECRET` değerini girin. Paneldeki OBS bağlantısı aynı anahtarı oyun adresine ekler. API, oyun durumunu saniyede bir eşitler; aynı tarayıcıdaki kontroller ayrıca anında aktarılır. Kontrol API'si yazma veya okuma hatası döndürürse panelin üst kısmında görünür.
+
+Yerel `/control` sayfasındaki **Vercel yayın adresi** alanına yayınlanan HTTPS site adresini veya tam `/control?key=...` bağlantısını girip **Vercel kontrolünü aç** düğmesine basın. Bu, paneli Vercel sitesinde açar; oradaki OBS oyun bağlantısı da aynı Vercel sitesinin `/game` adresini gösterir. Vercel API erişimi için Redis değişkenleri ve `CONTROL_SECRET` tanımlı olmalıdır; eksikse hata panelde görünür.
 
 Yayıncı adını oyundaki ayarlardan girin. Connector'ın `MEMBER` olayı her yeni izleyici için isimli zombi oluşturur; `LIKE` olayındaki `count` değeri beğeni hızlandırmasını artırır. Beğeni gönderen izleyicinin katılım olayı kaçırılmışsa o da zombi listesine eklenir. Aynı kullanıcı tekrar geldiğinde ikinci bir zombi oluşturulmaz.
 

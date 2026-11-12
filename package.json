@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "dev:game-local": "vite --port=80 --strictPort --host=127.0.0.1",
+    "setup:local-ssl": "bash scripts/setup-local-ssl.sh",
+    "dev:game-local": "LOCAL_HTTPS=1 vite --port=443 --strictPort --host=127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",

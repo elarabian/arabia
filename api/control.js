@@ -1,13 +1,13 @@
 const KEY = 'arabia:control:v1';
 let localRecord = {};
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
 async function redis(command) {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-  if (!url || !token) return null;
-  const response = await fetch(url, {
+  if (!redisUrl || !redisToken) return null;
+  const response = await fetch(redisUrl, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${redisToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(command),
   });
   if (!response.ok) throw new Error(`Redis ${response.status}`);
@@ -42,8 +42,8 @@ export default async function handler(request, response) {
     return;
   }
   response.setHeader('Cache-Control', 'no-store');
-  if (process.env.VERCEL && (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN)) {
-    send(503, { error: 'UPSTASH_REDIS_REST_URL ve UPSTASH_REDIS_REST_TOKEN gerekli' });
+  if (process.env.VERCEL && (!redisUrl || !redisToken)) {
+    send(503, { error: 'Vercel kontrolü için Upstash Redis bağlantısı gerekli (UPSTASH_REDIS_REST_URL/TOKEN veya KV_REST_API_URL/TOKEN)' });
     return;
   }
   if (request.method === 'POST' && process.env.VERCEL && !process.env.CONTROL_SECRET) {

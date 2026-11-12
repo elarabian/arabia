@@ -15,6 +15,12 @@ interface SettingsModalProps {
   tiktokMessage: string;
   onTikTokUsernameChange: (value: string) => void;
   obsUrl: string;
+  controlKey: string;
+  onControlKeyChange: (value: string) => void;
+  showPublishedControlLink: boolean;
+  publishedSiteUrl: string;
+  publishedSiteError: string;
+  onOpenPublishedControl: (value: string) => void;
   currentMap?: 'DESERT' | 'GRAVEYARD';
   onSelectMap?: (map: 'DESERT' | 'GRAVEYARD') => void;
 }
@@ -30,12 +36,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   tiktokMessage,
   onTikTokUsernameChange,
   obsUrl,
+  controlKey,
+  onControlKeyChange,
+  showPublishedControlLink,
+  publishedSiteUrl,
+  publishedSiteError,
+  onOpenPublishedControl,
   currentMap = 'DESERT',
   onSelectMap,
 }) => {
   const [vol, setVol] = React.useState(soundEngine.getVolume());
   const [usernameDraft, setUsernameDraft] = React.useState(tiktokUsername);
   const [obsCopied, setObsCopied] = React.useState(false);
+  const [publishedSiteDraft, setPublishedSiteDraft] = React.useState(publishedSiteUrl);
+  const [controlKeyDraft, setControlKeyDraft] = React.useState(controlKey);
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -80,6 +94,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Content body */}
         <div className="p-6 overflow-y-auto space-y-6">
+          <div className="space-y-2 rounded-lg border border-sky-700/50 bg-sky-950/20 p-3">
+            <label htmlFor="control-key" className="block text-xs font-semibold text-sky-200">
+              Vercel kontrol anahtarı
+            </label>
+            <p className="text-[11px] text-stone-400">
+              Vercel Environment Variables içindeki CONTROL_SECRET değerini girin. Sahne değişiklikleri bu anahtarla oyuna gönderilir.
+            </p>
+            <input id="control-key" type="password" value={controlKeyDraft}
+              onChange={event => setControlKeyDraft(event.target.value)} autoComplete="off"
+              className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-xs text-stone-200" />
+            <button type="button" onClick={() => onControlKeyChange(controlKeyDraft)}
+              className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white">
+              Anahtarı uygula
+            </button>
+          </div>
+          {showPublishedControlLink && (
+            <div className="space-y-2 rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-3">
+              <label htmlFor="published-site-url" className="block text-xs font-semibold text-emerald-200">
+                Vercel yayın adresi
+              </label>
+              <p className="text-[11px] text-stone-400">
+                Vercel oyununu yönetmek için yayın adresini veya /control?key=... bağlantısını girin.
+              </p>
+              <input id="published-site-url" type="url" value={publishedSiteDraft}
+                onChange={event => setPublishedSiteDraft(event.target.value)}
+                placeholder="https://projeniz.vercel.app" autoComplete="url" spellCheck={false}
+                className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-xs text-stone-200" />
+              {publishedSiteError && <p className="text-xs text-red-300" role="alert">{publishedSiteError}</p>}
+              <button type="button" onClick={() => onOpenPublishedControl(publishedSiteDraft)}
+                className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
+                Vercel kontrolünü aç
+              </button>
+            </div>
+          )}
           <div className="space-y-2 rounded-lg border border-amber-700/50 bg-amber-950/20 p-3">
             <div className="text-xs font-semibold text-amber-200">OBS / TikTok LIVE Studio oyun bağlantısı</div>
             <p className="text-[11px] text-stone-400">Bu bağlantı yalnızca oyunu gösterir; kontrol paneli yayına girmez.</p>

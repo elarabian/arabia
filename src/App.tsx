@@ -26,7 +26,10 @@ const normalizeTikTokUsername = (value: string | null) => {
 
 export default function App() {
   const pageParams = new URLSearchParams(window.location.search);
-  const controlKey = pageParams.get('key') ?? '';
+  const [controlKey, setControlKey] = useState(() => {
+    try { return pageParams.get('key') ?? sessionStorage.getItem('controlKey') ?? ''; }
+    catch { return pageParams.get('key') ?? ''; }
+  });
   const obsMode = window.location.pathname === '/game' || pageParams.get('obs') === '1';
   const controlMode = !obsMode;
   const [savedControl] = useState(readControlSnapshot);
@@ -42,6 +45,13 @@ export default function App() {
   const [remoteStats, setRemoteStats] = useState({ zombies: 0, likes: 0 });
   const [gameOnline, setGameOnline] = useState(false);
   const [studioAddress, setStudioAddress] = useState('');
+  const isLocalControl = ['localhost', '127.0.0.1', 'game.local', 'test.local'].includes(window.location.hostname);
+  const [publishedSiteUrl, setPublishedSiteUrl] = useState(() => {
+    try { return localStorage.getItem('publishedSiteUrl') ?? ''; } catch { return ''; }
+  });
+  const [publishedSiteError, setPublishedSiteError] = useState('');
+  const [relayReadError, setRelayReadError] = useState('');
+  const [relayWriteError, setRelayWriteError] = useState('');
   const channelRef = useRef<BroadcastChannel | null>(null);
   const lastGameStatusRef = useRef(0);
   const relayRevisionRef = useRef<string | null>(null);
@@ -98,6 +108,34 @@ export default function App() {
   const studioUrl = new URL(gameUrl);
   if (studioAddress) studioUrl.hostname = studioAddress;
 
+  const openPublishedControl = (value: string) => {
+    try {
+      const site = new URL(value.trim());
+      if (site.protocol !== 'https:' || !site.hostname || site.username || site.password) {
+        throw new Error('Geçerli bir HTTPS adresi girin.');
+      }
+      const controlUrl = new URL('/control', site.origin);
+      const selectedKey = site.searchParams.get('key') || controlKey;
+      if (selectedKey) controlUrl.searchParams.set('key', selectedKey);
+      setPublishedSiteUrl(controlUrl.toString());
+      setPublishedSiteError('');
+      try { localStorage.setItem('publishedSiteUrl', controlUrl.toString()); } catch { /* Storage can be unavailable. */ }
+      window.location.assign(controlUrl.toString());
+    } catch {
+      setPublishedSiteError('Vercel adresini https://... biçiminde girin.');
+    }
+  };
+
+  const changeControlKey = (value: string) => {
+    const key = value.trim();
+    setControlKey(key);
+    setRelayWriteError('');
+    try {
+      if (key) sessionStorage.setItem('controlKey', key);
+      else sessionStorage.removeItem('controlKey');
+    } catch { /* Storage can be unavailable. */ }
+  };
+
   useEffect(() => {
     if (!controlMode || !['localhost', '127.0.0.1'].includes(window.location.hostname)) return;
     let active = true;
@@ -116,7 +154,14 @@ export default function App() {
       headers: { 'Content-Type': 'application/json', ...(controlKey
         ? { 'X-Control-Key': controlKey } : {}) },
       body: JSON.stringify(data),
-    }).catch(() => { /* Local browser sync remains available. */ });
+    }).then(async response => {
+      if (response.ok) {
+        setRelayWriteError('');
+        return;
+      }
+      const issue = await response.json().catch(() => ({})) as { error?: string };
+      setRelayWriteError(issue.error || `Kontrol gönderilemedi: ${response.status}`);
+    }).catch(() => { setRelayWriteError('Kontrol değişikliği gönderilemedi.'); });
   }, [controlKey]);
 
   const sendCommand = (command: 'pause' | 'restart' | 'reconnect') => {
@@ -135,7 +180,7 @@ export default function App() {
 
   useEffect(() => {
     if (controlMode) publishControl();
-  }, []);
+  }, [controlKey]);
 
   const applyRemote = useCallback((value: unknown) => {
     if (!obsMode) return;
@@ -205,7 +250,13 @@ export default function App() {
       polling = true;
       try {
         const response = await fetch('/api/control', { cache: 'no-store' });
-        if (!response.ok || !active) return;
+        if (!active) return;
+        if (!response.ok) {
+          const issue = await response.json().catch(() => ({})) as { error?: string };
+          setRelayReadError(issue.error || `Kontrol API hatası: ${response.status}`);
+          return;
+        }
+        setRelayReadError('');
         const record = await response.json() as {
           snapshot?: unknown;
           revision?: string;
@@ -241,7 +292,7 @@ export default function App() {
           }
           setGameOnline(Date.now() - lastGameStatusRef.current < 90000);
         }
-      } catch { /* Local BroadcastChannel sync can still work. */ }
+      } catch { if (active) setRelayReadError('Kontrol API bağlantısı kurulamadı.'); }
       finally { polling = false; }
     };
     void poll();
@@ -609,6 +660,9 @@ export default function App() {
         <button type="button" onClick={() => sendCommand('restart')}>
           Yeniden başlat
         </button>
+        {(relayReadError || relayWriteError) && <span className="text-red-300" role="alert">
+          {relayReadError || relayWriteError}
+        </span>}
       </div>
       {gameState === 'PLAYING' && (
         <aside className="rapid-whip-panel z-30 rounded-xl border border-amber-600/40 bg-stone-950/95 p-3 shadow-xl">
@@ -733,6 +787,12 @@ export default function App() {
           currentMap={currentMap}
           onSelectMap={handleSelectMap}
           obsUrl={studioUrl.toString()}
+          controlKey={controlKey}
+          onControlKeyChange={changeControlKey}
+          showPublishedControlLink={isLocalControl}
+          publishedSiteUrl={publishedSiteUrl}
+          publishedSiteError={publishedSiteError}
+          onOpenPublishedControl={openPublishedControl}
         />
         </aside>
       )}

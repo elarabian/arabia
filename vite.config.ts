@@ -2,12 +2,20 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import {defineConfig} from 'vite';
 import {stat} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import {networkInterfaces} from 'node:os';
+import {join} from 'node:path';
 
 export default defineConfig(() => {
+  const localHttps = process.env.LOCAL_HTTPS === '1';
+  const certificateDir = join(import.meta.dirname, '.cert');
   return {
     server: {
       allowedHosts: ['game.local', 'test.local'],
+      ...(localHttps ? {https: {
+        key: readFileSync(join(certificateDir, 'local-key.pem')),
+        cert: readFileSync(join(certificateDir, 'local.pem')),
+      }} : {}),
     },
     plugins: [
       react(), tailwindcss(),
