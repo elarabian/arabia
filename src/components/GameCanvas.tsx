@@ -3,6 +3,9 @@ import { BROADCAST } from '../game/broadcast';
 import { soundEngine } from '../game/audio';
 import { GameEngine } from '../game/gameEngine';
 
+const OBS_CANVAS_WIDTH = 1080;
+const OBS_CANVAS_HEIGHT = 1920;
+
 interface GameCanvasProps {
   engine: GameEngine;
   isPaused: boolean;
@@ -24,12 +27,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
   const handleResize = useCallback(() => {
     if (!containerRef.current || !canvasRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.max(1, rect.width);
     const height = Math.max(1, rect.height);
 
-    canvasRef.current.width = width * dpr;
-    canvasRef.current.height = height * dpr;
+    const outputWidth = OBS_CANVAS_WIDTH;
+    const outputHeight = OBS_CANVAS_HEIGHT;
+    if (canvasRef.current.width !== outputWidth) canvasRef.current.width = outputWidth;
+    if (canvasRef.current.height !== outputHeight) canvasRef.current.height = outputHeight;
     canvasRef.current.style.width = `${width}px`;
     canvasRef.current.style.height = `${height}px`;
 
@@ -37,7 +41,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
     const logicalWidth = width / height * logicalHeight;
     const ctx = canvasRef.current.getContext('2d');
     if (ctx) {
-      ctx.setTransform(width * dpr / logicalWidth, 0, 0, height * dpr / logicalHeight, 0, 0);
+      ctx.setTransform(outputWidth / logicalWidth, 0, 0, outputHeight / logicalHeight, 0, 0);
     }
     engine.resize(logicalWidth, logicalHeight);
   }, [engine]);
@@ -92,29 +96,45 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
 
     let animationFrameId: number;
     let lastTime = performance.now();
+    let pendingSeconds = 0;
 
-    const loop = (time: number) => {
-      // Keep the next frame scheduled even if a browser audio/render call fails.
-      animationFrameId = requestAnimationFrame(loop);
-      const rawDt = (time - lastTime) / 1000;
+    const advance = (time: number) => {
+      const elapsed = Math.max(0, (time - lastTime) / 1000);
       lastTime = time;
-      const dt = Math.min(rawDt, 0.05); // clamp to prevent physics tunneling
-
-      if (!isPaused && canvasRef.current) {
-        engine.update(dt);
-        onStatsUpdate();
-
-        const ctx = canvasRef.current.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, engine.width, engine.height);
-          engine.render(ctx, time);
-        }
+      if (isPaused || !canvasRef.current) {
+        pendingSeconds = 0;
+        return;
       }
 
+      pendingSeconds += elapsed;
+      let updates = 0;
+      while (pendingSeconds > 0.0001 && updates < 120) {
+        const dt = Math.min(pendingSeconds, 0.05);
+        engine.update(dt);
+        pendingSeconds -= dt;
+        updates++;
+      }
+      if (updates) onStatsUpdate();
+
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, engine.width, engine.height);
+        engine.render(ctx, time);
+      }
     };
 
+    const loop = (time: number) => {
+      animationFrameId = requestAnimationFrame(loop);
+      if (!document.hidden) advance(time);
+    };
+
+    // Browsers suspend animation frames for hidden tabs. Timers keep the game
+    // advancing, and elapsed time is caught up when a throttled timer resumes.
+    const backgroundTimer = window.setInterval(() => {
+      if (document.hidden) advance(performance.now());
+    }, 100);
     const resume = () => {
-      lastTime = performance.now();
+      advance(performance.now());
       if (!document.hidden && !isPaused) soundEngine.setPaused(false);
     };
     document.addEventListener('visibilitychange', resume);
@@ -124,6 +144,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({ engine, isPaused, onStat
 
     return () => {
       cancelAnimationFrame(animationFrameId);
+      clearInterval(backgroundTimer);
       observer.disconnect();
       document.removeEventListener('visibilitychange', resume);
       window.removeEventListener('pageshow', resume);

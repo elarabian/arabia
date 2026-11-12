@@ -37,6 +37,9 @@ export interface BodyPart {
 
 export interface Zombie {
   id: string;
+  viewerId?: string;
+  viewerName?: string;
+  viewerHandle?: string;
   type: ZombieType;
   x: number;
   y: number;
@@ -83,6 +86,8 @@ export interface Zombie {
   formation?: { angle: number; radiusX: number; radiusY: number };
   buried?: boolean;
   burialClipY?: number;
+  burialDragging?: boolean;
+  burialFleeing?: boolean;
   blastAngle?: number;
   blastSpin?: number;
   blastGroundY?: number;
@@ -175,6 +180,7 @@ export interface PlayerStats {
 export interface GameSettings {
   soundVolume: number;
   screenShake: boolean;
+  screenShakeStrength: number; // 0 to 1
   bloodIntensity: number; // 0 (none) to 2 (ultra gore)
   ambientLighting: boolean;
   rainEffect: boolean;

@@ -240,11 +240,13 @@ export class ZombieManager {
         ctx.restore();
         continue;
       }
-      const dancing = z.bowTimer <= 0 && (z.blastAngle === undefined || (z.blastDelay ?? 0) > 0);
+      const running = z.burialFleeing === true;
+      const dancing = !running && z.bowTimer <= 0 && (z.blastAngle === undefined || (z.blastDelay ?? 0) > 0);
+      const dragged = z.burialDragging === true;
       const flying = z.blastAngle !== undefined && z.vy !== 0 && (z.blastDelay ?? 0) <= 0;
       const bow = bowAmount(z);
       const crawler = z.leftLeg.severed || z.rightLeg.severed || z.type === 'CRAWLER';
-      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 10 : 4);
+      const sway = z.bowTimer > 0 ? 0 : Math.sin(z.walkCycle) * (dancing ? 10 : running ? 7 : dragged ? 5 : 4);
       const eye = z.isBurning ? '#fb923c' : z.type === 'BOSS' ? '#ef4444' : z.type === 'SPITTER' ? '#a3e635' : '#e2e8f0';
       if (z.blastGroundY !== undefined) {
         const height = Math.max(0, z.blastGroundY - z.y);
@@ -295,18 +297,18 @@ export class ZombieManager {
         if (part.severed) continue;
         const armSide = offset < 0 ? -1 : 1;
         const flail = flying ? Math.sin((z.blastFlail ?? 0) + armSide * 1.5) * 12 : 0;
-        const elbowX = flying ? armSide * (30 + flail * .35) : bow > 0 ? armSide * 14 : dancing ? armSide * 27 : -25;
-        const elbowY = flying ? -50 - flail : bow > 0 ? -55 : dancing ? -68 + sway : -57 + sway;
-        const handX = flying ? armSide * (40 + flail * .6) : bow > 0 ? armSide * 10 : dancing ? armSide * 36 : -35;
-        const handY = flying ? -42 - flail * 1.4 : bow > 0 ? -43 : dancing ? -80 + sway : -61 + sway;
+        const elbowX = flying ? armSide * (30 + flail * .35) : bow > 0 ? armSide * 14 : dancing ? armSide * 27 : dragged || running ? armSide * 20 : -25;
+        const elbowY = flying ? -50 - flail : bow > 0 ? -55 : dancing ? -68 + sway : dragged || running ? -52 + sway : -57 + sway;
+        const handX = flying ? armSide * (40 + flail * .6) : bow > 0 ? armSide * 10 : dancing ? armSide * 36 : dragged || running ? armSide * 30 : -35;
+        const handY = flying ? -42 - flail * 1.4 : bow > 0 ? -43 : dancing ? -80 + sway : dragged || running ? -45 + sway : -61 + sway;
         ctx.strokeStyle='#17181c'; ctx.lineWidth=11; ctx.lineCap='round';
         ctx.beginPath(); ctx.moveTo(offset,-69);
         ctx.lineTo(elbowX, elbowY);
         ctx.lineTo(handX, handY); ctx.stroke();
         ctx.strokeStyle='#838578'; ctx.lineWidth=5;
         ctx.beginPath(); ctx.moveTo(handX, handY);
-        ctx.lineTo(flying ? handX + armSide * 7 : bow > 0 ? armSide*10 : dancing ? armSide*43 : -42,
-          flying ? handY + 5 : bow > 0 ? -39 : dancing ? -79+sway : -60+sway); ctx.stroke();
+        ctx.lineTo(flying ? handX + armSide * 7 : bow > 0 ? armSide*10 : dancing ? armSide*43 : dragged || running ? handX+armSide*7 : -42,
+          flying ? handY + 5 : bow > 0 ? -39 : dancing ? -79+sway : dragged || running ? handY+4 : -60+sway); ctx.stroke();
       }
       if (!z.head.severed) {
         ctx.fillStyle='#0d0e11'; ctx.beginPath(); ctx.ellipse(0,-91,17,23,0,0,Math.PI*2); ctx.fill();
@@ -317,7 +319,7 @@ export class ZombieManager {
         ctx.fillStyle='#15161a'; ctx.beginPath(); ctx.moveTo(-16,-87); ctx.lineTo(16,-87);
         ctx.lineTo(22,-64); ctx.lineTo(0,-57); ctx.lineTo(-22,-64); ctx.closePath(); ctx.fill();
       }
-      if (dancing || flying) {
+      if (dancing || flying || dragged || running) {
         ctx.strokeStyle = '#25262b'; ctx.lineWidth = 7;
         const legPhase = flying ? z.blastFlail ?? 0 : z.walkCycle;
         ctx.beginPath(); ctx.moveTo(-9,-5); ctx.lineTo(-15 + Math.sin(legPhase)*11,6);
@@ -329,6 +331,20 @@ export class ZombieManager {
         ctx.fillText('♪', 22, -116 + Math.sin(z.walkCycle)*5);
       }
       ctx.restore();
+      if (z.viewerName) {
+        const label = z.viewerName;
+        const labelY = z.y - 117 * z.scale;
+        ctx.font = 'bold 12px sans-serif';
+        const labelWidth = Math.min(160, ctx.measureText(label).width + 16);
+        ctx.fillStyle = 'rgba(12, 14, 18, .85)';
+        ctx.beginPath();
+        ctx.roundRect(z.x - labelWidth / 2, labelY - 16, labelWidth, 20, 7);
+        ctx.fill();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fff7ed';
+        ctx.fillText(label, z.x, labelY - 6, labelWidth - 10);
+      }
       ctx.restore();
 
     }

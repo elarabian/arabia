@@ -342,7 +342,9 @@ export class AtmosphereSystem {
     }
   }
 
-  public drawBackground(ctx: CanvasRenderingContext2D, width: number, height: number, bgImage: HTMLImageElement | null, customGroundY?: number) {
+  public drawBackground(ctx: CanvasRenderingContext2D, width: number, height: number,
+    bgImage: HTMLImageElement | null, customGroundY?: number,
+    camera?: { x: number; y: number }) {
     ctx.save();
 
     const groundY = customGroundY ?? height - 55;
@@ -350,7 +352,42 @@ export class AtmosphereSystem {
     if (bgImage && bgImage.complete && bgImage.naturalWidth > 0) {
       // Anchor the flat sand at the gameplay baseline in both mobile and desktop modes.
       const rect = backgroundImageRect(width, height, groundY);
-      ctx.drawImage(bgImage, rect.x, rect.y, rect.width, rect.height);
+      if (!camera) ctx.drawImage(bgImage, rect.x, rect.y, rect.width, rect.height);
+      else {
+        // The mountain layer moves less than the nearby sand. Feather the seam
+        // between them and mirror tiles so travel never exposes an empty edge.
+        const drawLayer = (factor: number, top: number, bottom: number, alpha = 1) => {
+          const shiftedX = rect.x - camera.x * factor;
+          const shiftedY = rect.y - camera.y * factor * .2;
+          const firstTile = Math.floor((-overscan - shiftedX) / rect.width) - 1;
+          const lastTile = Math.ceil((width + overscan - shiftedX) / rect.width) + 1;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(-overscan, top, width + overscan * 2, bottom - top); ctx.clip();
+          ctx.globalAlpha = alpha;
+          for (let tile = firstTile; tile <= lastTile; tile++) {
+            const tileX = shiftedX + tile * rect.width;
+            if (tileX > width + overscan || tileX + rect.width < -overscan) continue;
+            ctx.save();
+            if (tile % 2) {
+              ctx.translate(tileX + rect.width, 0);
+              ctx.scale(-1, 1);
+              ctx.drawImage(bgImage, 0, shiftedY, rect.width, rect.height);
+            } else {
+              ctx.drawImage(bgImage, tileX, shiftedY, rect.width, rect.height);
+            }
+            ctx.restore();
+          }
+          ctx.restore();
+        };
+        drawLayer(.18, -overscan, height + overscan);
+        const transitionTop = groundY * .78;
+        const transitionHeight = 80;
+        for (let i = 0; i < 10; i++) {
+          const top = transitionTop + i * transitionHeight / 10;
+          drawLayer(.72, top, top + transitionHeight / 10, (i + .5) / 10);
+        }
+        drawLayer(.72, transitionTop + transitionHeight, height + overscan);
+      }
     } else {
       const sky = ctx.createLinearGradient(0, 0, 0, height);
       sky.addColorStop(0, '#379ee6'); sky.addColorStop(0.55, '#c5eaff');

@@ -1,6 +1,0 @@
-{
-  "name": "Kırbaç Avcısı: Arap Çölü Zombi Kıyameti",
-  "description": "Keffiyeh puşili, yırtık çöl cübbeli Arap zombileri, zırhlı Sarazen Memlük savaşçıları ve lanetli Sultan'a karşı Verlet ip fiziğiyle zombi kırbaçlama oyunu.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

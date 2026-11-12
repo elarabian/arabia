@@ -30,8 +30,11 @@ export function drawHero3D(ctx:CanvasRenderingContext2D,x:number,y:number,angle:
   const pt=(level:number,n:number):V=>{const [h,rx,rz]=rings[level],a=n/32*Math.PI*2,f=1+.035*Math.cos(a*8);return [Math.cos(a)*rx*f,h,Math.sin(a)*rz*f];};
   face([pt(j,i),pt(j,i+1),pt(j+1,i+1),pt(j+1,i)],SKY);
  }
- sphere([-10,3+Math.max(0,step),3],[8,3,11],DARK);
- sphere([10,3+Math.max(0,-step),3],[8,3,11],DARK);
+ const stride=Math.max(-12,Math.min(12,step));
+ tube([-10,18,0],[-10,3+Math.max(0,stride),3+stride*2.3],4,DARK);
+ tube([10,18,0],[10,3+Math.max(0,-stride),3-stride*2.3],4,DARK);
+ sphere([-10,3+Math.max(0,stride),3+stride*2.3],[8,3,11],DARK);
+ sphere([10,3+Math.max(0,-stride),3-stride*2.3],[8,3,11],DARK);
  tube([0,77,0],[0,85,0],6,SKIN);
  sphere([0,94,0],[11,14,10],SKIN);
  sphere([0,85,5],[9,7,6],DARK);
@@ -57,8 +60,8 @@ export function drawHero3D(ctx:CanvasRenderingContext2D,x:number,y:number,angle:
  for(let i=0;i<32;i++){const a=i/32*Math.PI*2,b=(i+1)/32*Math.PI*2;tube([13*Math.cos(a),105,12*Math.sin(a)],[13*Math.cos(b),105,12*Math.sin(b)],1.8,DARK);}
  // Relaxed left arm, attached in model space.
  const raised=Math.max(0,Math.min(1,handsRaised));
- const leftElbow:V=[-22+2*raised,53+51*raised+runStep*12,2+raised];
- const leftHand:V=[-13+raised,46+81*raised+runStep*22,9-raised];
+ const leftElbow:V=[-22+2*raised,53+51*raised+runStep*5,2+raised+runStep*12];
+ const leftHand:V=[-13+raised,46+81*raised+runStep*8,9-raised+runStep*20];
  tube([-15,72,0],leftElbow,6.5,SKY);tube(leftElbow,leftHand,5.5,SKY);sphere(leftHand,[4,4.5,4],SKIN);
  // Bend above the hips while the feet remain planted.
  for(const f of faces)f.v=f.v.map(p=>[p[0],p[1],p[2]+lean*Math.max(0,p[1]-15)/65] as V);

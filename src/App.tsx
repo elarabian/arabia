@@ -5,50 +5,219 @@ import { HUD } from './components/HUD';
 import { ShopModal } from './components/ShopModal';
 import { SettingsModal } from './components/SettingsModal';
 import { soundEngine } from './game/audio';
-import { Play, RotateCcw, Sparkles, Shield, Volume2, Skull, Zap, Bomb, Shovel } from 'lucide-react';
+import { featureFlags } from './featureFlags';
+import { connectTikTokLive, type LiveStatus } from './live/tiktok';
+import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
+  captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
+import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
+import graveyardUrl from './assets/images/gothic_graveyard_ruins_1794419017647.jpg';
+import crestUrl from './assets/images/zombie_hunter_crest_1794419032026.jpg';
 export const ARABIAN_DESERT_BG_URL = saharaUrl;
-export const GRAVEYARD_BG_URL = saharaUrl;
-const CREST_URL = '/src/assets/images/zombie_hunter_crest_1794419032026.jpg';
+export const GRAVEYARD_BG_URL = graveyardUrl;
+const CREST_URL = crestUrl;
+const DEFAULT_TIKTOK_USERNAME = 'ersanyakit';
+const normalizeTikTokUsername = (value: string | null) => {
+  const username = value?.trim().replace(/^@/, '') ?? '';
+  return !username || username.toLowerCase() === 'astro.ses' ? DEFAULT_TIKTOK_USERNAME : username;
+};
 
 export default function App() {
-  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAME_OVER'>('TITLE');
-  const [currentMap, setCurrentMap] = useState<'DESERT' | 'GRAVEYARD'>('DESERT');
+  const pageParams = new URLSearchParams(window.location.search);
+  const obsMode = window.location.pathname === '/game' || pageParams.get('obs') === '1';
+  const controlMode = !obsMode;
+  const [savedControl] = useState(readControlSnapshot);
+  const [gameState, setGameState] = useState<'TITLE' | 'PLAYING' | 'GAME_OVER'>('PLAYING');
+  const [currentMap, setCurrentMap] = useState<'DESERT' | 'GRAVEYARD'>(
+    savedControl?.map ?? (obsMode && pageParams.get('map') === 'GRAVEYARD' ? 'GRAVEYARD' : 'DESERT'));
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-  const [rapidWhip, setRapidWhip] = useState(false);
-  const [rapidWhipSpeed, setRapidWhipSpeed] = useState(1);
+  const [rapidWhip, setRapidWhip] = useState(savedControl?.rapidWhip ?? false);
+  const [rapidWhipSpeed, setRapidWhipSpeed] = useState(savedControl?.rapidWhipSpeed ?? 1);
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting');
+  const [liveMessage, setLiveMessage] = useState('');
+  const [remoteStats, setRemoteStats] = useState({ zombies: 0, likes: 0 });
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const lastStatusSent = useRef(0);
+  const [tiktokUsername, setTikTokUsername] = useState(() => {
+    if (savedControl?.username) return normalizeTikTokUsername(savedControl.username);
+    if (obsMode && pageParams.get('username')) return normalizeTikTokUsername(pageParams.get('username'));
+    try {
+      const saved = localStorage.getItem('tiktokUsername');
+      const username = normalizeTikTokUsername(saved);
+      if (saved?.trim().replace(/^@/, '').toLowerCase() === 'astro.ses') {
+        localStorage.setItem('tiktokUsername', username);
+      }
+      return username;
+    } catch { return DEFAULT_TIKTOK_USERNAME; }
+  });
+  const [liveReconnect, setLiveReconnect] = useState(0);
   const [, setTick] = useState<number>(0);
 
   // Keep the safe area reserved without displaying chat or overlay buttons.
   const engineRef = useRef<GameEngine | null>(null);
   if (!engineRef.current) {
-    engineRef.current = new GameEngine(ARABIAN_DESERT_BG_URL);
+    engineRef.current = new GameEngine(currentMap === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
     engineRef.current.setTikTokMode(true);
+    if (obsMode) {
+      engineRef.current.restartGame();
+      const shake = Number(pageParams.get('shake'));
+      if (Number.isFinite(shake) && pageParams.has('shake')) {
+        engineRef.current.settings.screenShakeStrength = Math.max(0, Math.min(1, shake));
+      }
+      engineRef.current.settings.screenShake = pageParams.get('shakeEnabled') !== '0';
+      const speed = Number(pageParams.get('speed'));
+      if (Number.isFinite(speed) && pageParams.has('speed')) engineRef.current.setRapidWhipSpeed(speed);
+      if (pageParams.get('rapid') === '1') engineRef.current.setRapidWhip(true);
+      const scene = pageParams.get('scene');
+      if (scene === 'BOMB') engineRef.current.setBombScene(true);
+      else if (scene === 'BURIAL') engineRef.current.setBurialScene(true);
+      else if (scene === 'HELL') engineRef.current.setHellScene(true);
+    }
+    if (savedControl) applyControlSnapshot(engineRef.current, savedControl);
   }
   const engine = engineRef.current;
+
+  useEffect(() => {
+    if (!obsMode) return;
+    try { soundEngine.startBackground(); } catch { /* OBS may block autoplay. */ }
+    void soundEngine.prepare().catch(() => { /* Visuals keep running without audio. */ });
+  }, [obsMode]);
+
+  const obsUrl = new URL('/game', window.location.origin).toString();
+
+  const publishControl = (overrides: Partial<ControlSnapshot> = {}) => {
+    if (!controlMode) return;
+    const snapshot = { ...captureControlSnapshot(engine, currentMap, tiktokUsername), ...overrides };
+    try { localStorage.setItem(CONTROL_STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* Private storage can be unavailable. */ }
+    channelRef.current?.postMessage({ type: 'control', snapshot });
+  };
+
+  useEffect(() => {
+    const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CONTROL_CHANNEL);
+    channelRef.current = channel;
+    const applyRemote = (value: unknown) => {
+      if (!obsMode) return;
+      const snapshot = parseControlSnapshot(value);
+      if (!snapshot) return;
+      applyControlSnapshot(engine, snapshot);
+      setCurrentMap(snapshot.map);
+      engine.setBackgroundImage(snapshot.map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+      setRapidWhip(snapshot.rapidWhip);
+      setRapidWhipSpeed(snapshot.rapidWhipSpeed);
+      setTikTokUsername(previous => {
+        if (previous === snapshot.username) return previous;
+        engine.clearLiveViewers();
+        return snapshot.username;
+      });
+      setTick(t => t + 1);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CONTROL_STORAGE_KEY && event.newValue) {
+        try { applyRemote(JSON.parse(event.newValue) as unknown); } catch { /* Ignore invalid storage data. */ }
+      }
+    };
+    const sendStatus = () => channel?.postMessage({ type: 'status',
+      status: liveStatus, message: liveMessage, zombies: engine.zombies.zombies.length,
+      likes: engine.liveLikes, paused: isPaused });
+    if (channel) channel.onmessage = event => {
+      const data = event.data as Record<string, unknown> | null;
+      if (!data) return;
+      if (data.type === 'control') applyRemote(data.snapshot);
+      else if (data.type === 'status' && controlMode) {
+        if (data.status === 'connected' || data.status === 'connecting' || data.status === 'offline' || data.status === 'error') setLiveStatus(data.status);
+        if (typeof data.message === 'string') setLiveMessage(data.message);
+        setRemoteStats({ zombies: Number(data.zombies) || 0, likes: Number(data.likes) || 0 });
+        if (typeof data.paused === 'boolean') setIsPaused(data.paused);
+      } else if (data.type === 'status-request' && obsMode) sendStatus();
+      else if (data.type === 'restart' && obsMode) {
+        engine.restartGame(); setGameState('PLAYING'); setIsPaused(false); sendStatus();
+      } else if (data.type === 'pause' && obsMode) {
+        setIsPaused(value => !value);
+      } else if (data.type === 'reconnect' && obsMode) setLiveReconnect(value => value + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    if (controlMode) channel?.postMessage({ type: 'status-request' });
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      channel?.close();
+      if (channelRef.current === channel) channelRef.current = null;
+    };
+  }, [engine, obsMode, controlMode, liveStatus, liveMessage, isPaused]);
+
+  useEffect(() => {
+    if (obsMode) channelRef.current?.postMessage({ type: 'status',
+      status: liveStatus, message: liveMessage, zombies: engine.zombies.zombies.length,
+      likes: engine.liveLikes, paused: isPaused });
+  }, [engine, obsMode, liveStatus, liveMessage, isPaused]);
+
+  useEffect(() => {
+    if (!featureFlags.tiktokEnabled || controlMode) return;
+    if (!tiktokUsername.trim()) {
+      setLiveStatus('offline');
+      setLiveMessage('Ayarlardan TikTok yayıncı adını girin');
+      return;
+    }
+    return connectTikTokLive(
+      tiktokUsername,
+      viewer => { if (engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1); },
+      count => { engine.addLiveLikes(count); },
+      (status, message) => { setLiveStatus(status); setLiveMessage(message ?? ''); },
+      chat => {
+        engine.addLiveViewer(chat.id, chat.name || chat.id, chat.handle);
+        engine.receiveLiveChat(chat.id, chat.name, chat.text);
+        setTick(t => t + 1);
+      },
+      gift => {
+        engine.addLiveViewer(gift.id, gift.name || gift.id, gift.handle);
+        engine.receiveLiveGift(gift.id, gift.name);
+        setTick(t => t + 1);
+      },
+    );
+  }, [engine, tiktokUsername, liveReconnect, controlMode]);
+
+  const changeTikTokUsername = (value: string) => {
+    const next = value.trim().replace(/^@/, '');
+    if (next === tiktokUsername) {
+      if (controlMode) channelRef.current?.postMessage({ type: 'reconnect' });
+      else setLiveReconnect(value => value + 1);
+      return;
+    }
+    engine.clearLiveViewers();
+    setTikTokUsername(next);
+    try { localStorage.setItem('tiktokUsername', next); } catch { /* Storage may be unavailable. */ }
+    publishControl({ username: next });
+  };
 
   const handleSelectMap = (map: 'DESERT' | 'GRAVEYARD') => {
     setCurrentMap(map);
     engine.setBackgroundImage(map === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL);
+    publishControl({ map });
   };
 
   // Force re-render for HUD updates
   const handleStatsUpdate = useCallback(() => {
     if (engine.isGameOver && gameState !== 'GAME_OVER') {
-      setGameState('GAME_OVER');
+      if (obsMode) engine.restartGame();
+      else setGameState('GAME_OVER');
     }
     setTick((t) => (t + 1) % 1000);
-  }, [engine, gameState]);
+    const now = performance.now();
+    if (obsMode && now - lastStatusSent.current >= 1000) {
+      lastStatusSent.current = now;
+      channelRef.current?.postMessage({ type: 'status', status: liveStatus,
+        message: liveMessage, zombies: engine.zombies.zombies.length,
+        likes: engine.liveLikes, paused: isPaused });
+    }
+  }, [engine, gameState, obsMode, liveStatus, liveMessage, isPaused]);
 
   const handleStartGame = async () => {
     soundEngine.startBackground();
     try { await soundEngine.prepare(); } catch { soundEngine.stopBackground(); alert('Oyun sesleri yüklenemedi. Lütfen yeniden dene.'); return; }
     engine.restartGame();
-    if (!engine.bombSceneEnabled && !engine.burialSceneEnabled) soundEngine.sayGreeting();
+    if (!engine.bombSceneEnabled && !engine.captureSceneEnabled) soundEngine.sayGreeting();
     setGameState('PLAYING');
     setIsPaused(false);
     // Sound engine trigger on first interaction
@@ -58,7 +227,7 @@ export default function App() {
   const handleRestart = () => {
     soundEngine.startBackground();
     engine.restartGame();
-    if (!engine.bombSceneEnabled && !engine.burialSceneEnabled) soundEngine.sayGreeting();
+    if (!engine.bombSceneEnabled && !engine.captureSceneEnabled) soundEngine.sayGreeting();
     setGameState('PLAYING');
     setIsPaused(false);
 
@@ -72,41 +241,48 @@ export default function App() {
     const enabled = !rapidWhip;
     engine.setRapidWhip(enabled);
     setRapidWhip(enabled);
+    publishControl({ rapidWhip: enabled });
   };
 
   const changeRapidWhipSpeed = (event: React.ChangeEvent<HTMLInputElement>) => {
     const speed = Number(event.target.value);
     engine.setRapidWhipSpeed(speed);
     setRapidWhipSpeed(engine.rapidWhipSpeed);
+    publishControl({ rapidWhipSpeed: engine.rapidWhipSpeed });
   };
 
-  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL') => {
+  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL') => {
+    engine.cancelLiveTasks();
     if (scene === 'BOMB') engine.setBombScene(true);
     else if (scene === 'BURIAL') engine.setBurialScene(true);
+    else if (scene === 'HELL') engine.setHellScene(true);
+    else if (engine.hellSceneEnabled) engine.setHellScene(false);
     else if (engine.burialSceneEnabled) engine.setBurialScene(false);
     else engine.setBombScene(false);
-    setIsSettingsOpen(false);
     setIsPaused(false);
     setTick((t) => t + 1);
+    publishControl();
     if (scene !== 'WHIP' && gameState === 'TITLE') void handleStartGame();
   };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Escape' && !event.repeat && gameState === 'PLAYING' && !isShopOpen && !isSettingsOpen) {
+      if (event.code === 'Escape' && !event.repeat && gameState === 'PLAYING' && !isShopOpen && !obsMode) {
         setIsPaused(value => !value);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [gameState, isShopOpen, isSettingsOpen]);
+  }, [gameState, isShopOpen, obsMode]);
 
   return (
-    <div className="relative w-screen h-[100dvh] bg-[#05070a] text-slate-100 overflow-hidden font-body select-none">
+    <div className={`app-layout relative w-screen h-[100dvh] bg-[#05070a] text-slate-100 font-body select-none ${obsMode ? 'obs-mode' : 'control-mode'}`}>
+      {obsMode && (
+      <main className="game-viewport" aria-label="1080×1920 oyun görüntüsü">
       {/* 1. Title Menu Screen */}
       {gameState === 'TITLE' && (
         <div
-          className="relative z-20 w-full h-full flex flex-col items-center justify-center p-6 bg-cover bg-center"
+          className="broadcast-stage relative z-20 flex flex-col items-center justify-center p-6 bg-cover bg-center"
           style={{ backgroundImage: `url(${currentMap === 'DESERT' ? ARABIAN_DESERT_BG_URL : GRAVEYARD_BG_URL})` }}
         >
           {/* Dark moody scrim */}
@@ -135,6 +311,12 @@ export default function App() {
             <p className="text-xs sm:text-sm text-stone-400 mb-6 max-w-md leading-relaxed">
               Keffiyeh puşili, yırtık cübbeli Arap bedevi zombileri, zırhlı Sarazen Memlük savaşçıları ve lanetli Sultan'a karşı Verlet ip fiziğiyle kırbacınızı şaklatın!
             </p>
+            {featureFlags.tiktokEnabled && (
+              <p className="mb-4 text-xs text-pink-300" title={liveMessage}>
+                TikTok: {tiktokUsername ? liveStatus === 'connected' ? 'bağlı' : 'bağlantı bekleniyor' : 'Ayarlardan yayıncı adını girin'}
+                {' · '}{engine.zombies.zombies.length} izleyici zombisi
+              </p>
+            )}
 
             {/* Feature highlights */}
             <div className="grid grid-cols-3 gap-2 w-full text-center text-xs text-stone-300 mb-6 border-y border-stone-800/80 py-3">
@@ -157,7 +339,7 @@ export default function App() {
               <div className="text-[11px] font-cinzel uppercase tracking-wider text-stone-400 mb-1.5 text-left">
                 Savaş Alanı / Harita:
               </div>
-              <div className="grid grid-cols-1 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleSelectMap('DESERT')}
                   className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
@@ -168,7 +350,12 @@ export default function App() {
                 >
                   🏜️ Güneşli Sahra Çölü
                 </button>
-
+                <button onClick={() => handleSelectMap('GRAVEYARD')}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${currentMap === 'GRAVEYARD'
+                    ? 'bg-amber-950/50 border-amber-500 text-amber-300 shadow-md'
+                    : 'bg-stone-900/60 border-stone-800 text-stone-400 hover:border-stone-700'}`}>
+                  ⚰️ Gotik Mezarlık
+                </button>
               </div>
             </div>
 
@@ -182,13 +369,6 @@ export default function App() {
                 <span>Oyuna Başla</span>
               </button>
 
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="w-full sm:w-auto py-3 px-4 bg-stone-900/90 hover:bg-stone-800 border border-stone-700 text-stone-300 rounded-lg text-xs font-semibold tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Shield className="w-4 h-4 text-amber-500" />
-                <span>Ayarlar</span>
-              </button>
             </div>
           </div>
         </div>
@@ -200,14 +380,14 @@ export default function App() {
           {/* Main Canvas rendering loop */}
           <GameCanvas
             engine={engine}
-            isPaused={isPaused || isShopOpen || isSettingsOpen || gameState === 'GAME_OVER'}
+            isPaused={isPaused || isShopOpen || gameState === 'GAME_OVER'}
             onStatsUpdate={handleStatsUpdate}
           />
 
           <HUD engine={engine} />
 
           {/* Paused Screen Overlay */}
-          {isPaused && !isShopOpen && !isSettingsOpen && (
+          {isPaused && !isShopOpen && !obsMode && (
             <div className="absolute inset-0 z-40 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-6">
               <div className="max-w-md w-full bg-stone-950 border border-stone-800 rounded-xl p-6 text-center shadow-2xl">
                 <h2 className="font-cinzel text-2xl font-bold text-stone-100 mb-2">
@@ -229,12 +409,6 @@ export default function App() {
                     className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 border border-stone-800 text-amber-400 font-cinzel text-xs tracking-wider rounded-lg transition-colors cursor-pointer"
                   >
                     Cephanelik & Geliştirmeler
-                  </button>
-                  <button
-                    onClick={() => setIsSettingsOpen(true)}
-                    className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 border border-stone-800 text-amber-400 font-cinzel text-xs tracking-wider rounded-lg transition-colors cursor-pointer"
-                  >
-                    Ayarlar
                   </button>
                   <button
                     onClick={() => setGameState('TITLE')}
@@ -318,15 +492,38 @@ export default function App() {
 
         </div>
       )}
+      </main>
+      )}
+      {!obsMode && (
+        <aside className="control-area" aria-label="Oyun kontrolleri ve ayarları">
+      <div className="control-toolbar">
+        <a href={obsUrl} target="_blank" rel="noreferrer">Oyun ekranını aç</a>
+        <button type="button" onClick={() => channelRef.current?.postMessage({ type: 'pause' })}>
+          {isPaused ? 'Devam et' : 'Duraklat'}
+        </button>
+        <button type="button" onClick={() => channelRef.current?.postMessage({ type: 'restart' })}>
+          Yeniden başlat
+        </button>
+      </div>
       {gameState === 'PLAYING' && (
         <aside className="rapid-whip-panel z-30 rounded-xl border border-amber-600/40 bg-stone-950/95 p-3 shadow-xl">
-          <div className="scene-selector mb-3 grid grid-cols-3 gap-1" aria-label="Sahne seçimi">
+          {featureFlags.tiktokEnabled && (
+            <div className="mb-2 text-[10px] text-stone-200"
+              title={liveMessage || `TikTok: ${liveStatus}`} aria-label={`TikTok: ${liveStatus}`}>
+              <div className="flex items-center gap-1">
+                <span className={`h-2 w-2 shrink-0 rounded-full ${liveStatus === 'connected' ? 'bg-emerald-400' : liveStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
+                <span className="rapid-whip-copy truncate">TikTok {liveStatus === 'connected' ? 'bağlı' : liveStatus === 'connecting' ? 'bağlanıyor' : 'bağlantı yok'}</span>
+              </div>
+              <div className="rapid-whip-copy mt-1 text-pink-300">{remoteStats.zombies} zombi · ♥ {remoteStats.likes}</div>
+            </div>
+          )}
+          <div className="scene-selector mb-3 grid grid-cols-2 gap-1" aria-label="Sahne seçimi">
             <button
               type="button"
               aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.bombSceneEnabled && !engine.burialSceneEnabled}
+              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled}
               onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.burialSceneEnabled
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled
                 ? 'border-amber-500 bg-amber-600 text-stone-950'
                 : 'border-stone-700 bg-stone-900 text-stone-300'}`}
             >
@@ -357,8 +554,19 @@ export default function App() {
               <Shovel className="h-3.5 w-3.5 shrink-0" />
               <span className="rapid-whip-copy">Gömme</span>
             </button>
+            <button type="button" aria-label="Cehennem sahnesi" aria-pressed={engine.hellSceneEnabled}
+              onClick={() => changeScene('HELL')}
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.hellSceneEnabled
+                ? 'border-red-400 bg-red-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Flame className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Cehennem</span>
+            </button>
           </div>
-          {engine.burialSceneEnabled ? (
+          {engine.hellSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-red-400">
+              <Flame className="h-4 w-4" /><span className="text-xs font-bold">Cehennem Sahnesi</span>
+            </div>
+          ) : engine.burialSceneEnabled ? (
             <div className="rapid-whip-copy flex items-center gap-2 text-emerald-400">
               <Shovel className="h-4 w-4" />
               <span className="text-xs font-bold">Gömme Sahnesi</span>
@@ -405,27 +613,23 @@ export default function App() {
             />
           </div>
           </>}
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            aria-label="Ayarlar"
-            className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-stone-700 py-1.5 text-[11px] text-stone-300 hover:border-amber-500 hover:text-amber-300 cursor-pointer"
-          >
-            <Shield className="h-3.5 w-3.5" />
-            <span className="rapid-whip-copy">Ayarlar</span>
-          </button>
         </aside>
       )}
-      {isSettingsOpen && (
         <SettingsModal
           engine={engine}
-          onClose={() => setIsSettingsOpen(false)}
-          onRefresh={() => setTick((t) => t + 1)}
+          onRefresh={() => { setTick((t) => t + 1); publishControl(); }}
           onBombSceneChange={enabled => changeScene(enabled ? 'BOMB' : 'WHIP')}
           onBurialSceneChange={enabled => changeScene(enabled ? 'BURIAL' : 'WHIP')}
+          onHellSceneChange={enabled => changeScene(enabled ? 'HELL' : 'WHIP')}
+          tiktokUsername={tiktokUsername}
+          tiktokStatus={liveStatus}
+          tiktokMessage={liveMessage}
+          onTikTokUsernameChange={changeTikTokUsername}
           currentMap={currentMap}
           onSelectMap={handleSelectMap}
+          obsUrl={obsUrl}
         />
+        </aside>
       )}
     </div>
   );

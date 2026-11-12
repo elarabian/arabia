@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const dir=await mkdtemp(join(tmpdir(),'kirbac-loop-'));
 try {
- await build({stdin:{contents:`export {GameEngine} from './src/game/gameEngine'; export {soundEngine} from './src/game/audio';`,resolveDir:root},bundle:true,platform:'node',format:'esm',outfile:join(dir,'game.mjs'),plugins:[{name:'assets',setup(b){
+ await build({stdin:{contents:`export {GameEngine} from './src/game/gameEngine'; export {soundEngine} from './src/game/audio';`,resolveDir:root},bundle:true,platform:'node',format:'esm',outfile:join(dir,'game.mjs'),define:{'import.meta.env':'{"VITE_TIKTOK_ENABLED":"false"}'},plugins:[{name:'assets',setup(b){
   b.onResolve({filter:/dialogueAssets$/},()=>({path:'dialogue-assets',namespace:'mock'}));
   b.onResolve({filter:/mp3\?url$/},args=>({path:args.path.includes('hero.mp3')?'hero':args.path.includes('background.mp3')?'background':args.path.includes('bomb.mp3')?'bomb':'whip',namespace:'mock'}));
   b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='dialogue-assets'?'export const dialogueAssets = {}':`export default "${args.path}.mp3"`}));
@@ -266,25 +266,49 @@ try {
  assert.ok(overheadRope.length>=23,'hero swings the simulated rope overhead during the voice');
  advanceBurial(burialGame.burialScene.prepDuration-.2);
  assert.ok(firstBurialTarget.formation,'lasso waits for the full hero recording');
+ const beforeCatchY=firstBurialTarget.y;
  advanceBurial(1.3);
  assert.equal(firstBurialTarget.formation,undefined,'rope catches one zombie after the voice');
+ assert.ok(Math.abs(firstBurialTarget.y-beforeCatchY)<30,
+  'the captive stays upright instead of dropping when the rope catches');
  const caughtRope=burialGame.burialScene.ropeNodes;
  assert.ok(caughtRope.length===24&&Math.abs(caughtRope[0].x-burialGame.arm.wrist.x)<.01
   &&Math.abs(caughtRope[0].y-burialGame.arm.wrist.y)<.01
   &&Math.abs(caughtRope.at(-1).x-firstBurialTarget.x)<.01
-  &&Math.abs(caughtRope.at(-1).y-(firstBurialTarget.y-52))<.01,
+  &&Math.abs(caughtRope.at(-1).y-(firstBurialTarget.y-47*firstBurialTarget.scale))<.01,
   'the visible rope stays connected from the hero hand to the caught zombie');
- assert.equal(burialGame.zombies.zombies.filter(z=>!z.formation).length,1,
-  'only the selected zombie is pulled from the circle');
- advanceBurial(3.4);
+ assert.equal(burialGame.zombies.zombies.filter(z=>!z.formation).length,20,
+  'the caught zombie is pulled while the others scatter');
+ advanceBurial(burialGame.burialScene.walkEnd-burialGame.burialScene.actionTime-.3);
+ assert.ok(burialGame.burialScene.cameraX>100,'camera follows the hunter to the right');
+ assert.ok(firstBurialTarget.x<burialGame.burialScene.heroX,'the captive trails behind the walking hunter');
+ assert.ok(firstBurialTarget.burialDragging && firstBurialTarget.blastAngle>-.6
+  &&Math.abs(firstBurialTarget.y-burialGame.burialScene.heroY)<90,
+  'the captive stumbles upright behind the rope');
+ assert.ok(burialGame.zombies.zombies.slice(1).every(z=>z.x<0||z.x>burialGame.width),
+  'the other dancers leave the screen during the capture');
+ advanceBurial(burialGame.burialScene.digEnd-burialGame.burialScene.actionTime+.4);
  assert.ok(firstBurialTarget.burialClipY!==undefined,'zombie sinks into the opened grave');
  const burialCanvas=new Proxy({}, {get:()=>()=>{}});
  burialGame.burialScene.drawGround(burialCanvas);
  burialGame.burialScene.drawForeground(burialCanvas,burialGame.arm.wrist.x,burialGame.arm.wrist.y);
- advanceBurial(1.1);
+ advanceBurial(burialGame.burialScene.buryEnd-burialGame.burialScene.actionTime+.2);
  assert.equal(firstBurialTarget.buried,true,'first zombie is covered with soil');
  assert.equal(burialGame.burialScene.buriedCount,1,'burials are counted one by one');
- advanceBurial(.8);
+ const rescueLines=[];
+ const rescueCanvas=new Proxy({}, {get:(_,key)=>key==='fillText'
+  ? value=>rescueLines.push(value):()=>{}});
+ burialGame.drawBurialDialogue(rescueCanvas);
+ assert.ok(rescueLines.includes('HEDİYE GÖNDER!'),
+  'the hero explains that a gift releases the buried viewer');
+ assert.ok(burialGame.zombies.zombies.slice(1).every(z=>z.formation),
+  'the other dancers return to their circle after burial');
+ const graveLabels=[];
+ const graveCanvas=new Proxy({}, {get:(_,key)=>key==='fillText'?(value)=>graveLabels.push(value):()=>{}});
+ burialGame.burialScene.drawGround(graveCanvas);
+ assert.ok(graveLabels.includes('RIP'),'the finished grave has a visible RIP marker');
+ advanceBurial(burialGame.burialScene.cycleEnd-burialGame.burialScene.actionTime+.2);
+ assert.ok(burialGame.burialScene.cameraX<20,'camera returns to the main stage after burial');
  assert.ok(burialGame.burialScene.target===burialGame.zombies.zombies[1],
   'the next cycle selects the next zombie');
  assert.equal(heroStarts,burialVoiceBefore+2,'hero.mp3 restarts after the first burial');
@@ -301,18 +325,77 @@ try {
  assert.equal(burialGame.burialSceneEnabled,false,'switching scenes stops the burial cycle');
  assert.ok(burialGame.zombies.zombies.every(z=>!z.buried&&z.formation),
   'scene switch restores the full dancing ring');
+ const mobileCapture=new GameEngine();mobileCapture.restartGame();mobileCapture.setTikTokMode(true);
+ mobileCapture.resize(300,960);mobileCapture.setBurialScene(true);
+ const offscreenTarget=mobileCapture.zombies.zombies[0];
+ offscreenTarget.formation=undefined;
+ offscreenTarget.x=mobileCapture.width+170;
+ offscreenTarget.y=270;
+ offscreenTarget.viewerName='mobile_viewer';
+ while(mobileCapture.burialScene.actionTime<.95){ctx.currentTime+=1/60;mobileCapture.update(1/60);}
+ const captureFrame=()=>{
+  const scene=mobileCapture.burialScene;
+  const screenX=offscreenTarget.x-scene.cameraX;
+  const labelTop=offscreenTarget.y-117*offscreenTarget.scale-16-scene.cameraY;
+  const feet=offscreenTarget.y+12*offscreenTarget.scale-scene.cameraY;
+  assert.ok(screenX>=78&&screenX<=mobileCapture.width-78,
+   `the mobile camera shows an offscreen zombie during the lasso (${screenX.toFixed(1)})`);
+  assert.ok(labelTop>=mobileCapture.height*.24+8,
+   'the captive name and head stay inside the mobile action zone');
+  assert.ok(feet<=mobileCapture.height*.72+12,
+   'the captive feet stay inside the mobile action zone');
+ };
+ captureFrame();
+ while(mobileCapture.burialScene.actionTime<1.07){ctx.currentTime+=1/60;mobileCapture.update(1/60);}
+ assert.equal(offscreenTarget.burialDragging,true,'the offscreen zombie is caught after the visible throw');
+ captureFrame();
+ const dialogueLines=[];
+ const dialogueCanvas=new Proxy({}, {get:(_,key)=>key==='fillText'
+  ? value=>dialogueLines.push(value):()=>{}});
+ const checkDialogue=(until,expected)=>{
+  while(mobileCapture.burialScene.actionTime<until){ctx.currentTime+=1/60;mobileCapture.update(1/60);}
+  dialogueLines.length=0;
+  mobileCapture.drawBurialDialogue(dialogueCanvas);
+  assert.ok(dialogueLines.includes(expected),`burial speech includes ${expected}`);
+ };
+ checkDialogue(1.15,'TÖVBE TÖVBE');
+ checkDialogue(2.45,'ŞÜKÜR ALLAH!');
+ checkDialogue(3.75,'HEDİYE ATICAM!');
+ checkDialogue(5.05,'HEDİYE ATINCA');
+ const hellGame=new GameEngine();hellGame.restartGame();hellGame.resize(300,960);
+ hellGame.setHellScene(true);
+ assert.equal(hellGame.burialScene.mode,'hell','fourth scene uses the burning pit');
+ const doomed=hellGame.zombies.zombies[0];
+ while(hellGame.burialScene.actionTime<hellGame.burialScene.walkEnd-.1){ctx.currentTime+=1/60;hellGame.update(1/60);}
+ assert.ok(doomed.burialDragging,'the hero drags the captive to the hell pit');
+ assert.ok(hellGame.burialScene.cameraX>0,'camera follows the captive toward the pit');
+ while(hellGame.burialScene.actionTime<hellGame.burialScene.digEnd-.15){ctx.currentTime+=1/60;hellGame.update(1/60);}
+ assert.ok(doomed.isBurning && doomed.x>hellGame.playerX,
+  'the captive flies into the pit and catches fire');
+ assert.ok(hellGame.burialScene.graveX-hellGame.burialScene.cameraX<hellGame.width-45,
+  'the burning pit stays in the mobile camera frame');
+ while(hellGame.burialScene.actionTime<hellGame.burialScene.buryEnd+.1){ctx.currentTime+=1/60;hellGame.update(1/60);}
+ assert.ok(doomed.buried && hellGame.burialScene.skeletons.length===1,
+  'the burned zombie becomes a visible skeleton');
+ const fireCanvas=new Proxy({}, {get:(_,key)=>key==='createRadialGradient'
+  ? ()=>({addColorStop(){}}):()=>{}});
+ hellGame.burialScene.drawGround(fireCanvas);
+ hellGame.burialScene.drawForeground(fireCanvas,0,0);
+ hellGame.setBurialScene(true);
+ assert.equal(hellGame.hellSceneEnabled,false,'scene switch leaves hell');
+ assert.equal(hellGame.burialScene.skeletons.length,0,'scene reset clears the pit');
  const fullBurial=new GameEngine();fullBurial.restartGame();fullBurial.resize(540,960);
  fullBurial.setBurialScene(true);
  let maxBuried=0,burialLooped=false;
  const buriedOrder=[];
  const burialPositions=[];
  let previousBuried=0;
- for(let frame=0;frame<60*430;frame++){
+ for(let frame=0;frame<60*750;frame++){
   ctx.currentTime+=1/60;fullBurial.update(1/60);
   if(fullBurial.burialScene.buriedCount>previousBuried){
    const next=fullBurial.zombies.zombies.find(z=>z.buried&&!buriedOrder.includes(z.id));
    if(next)buriedOrder.push(next.id);
-   burialPositions.push(`${fullBurial.burialScene.graveX.toFixed(0)},${fullBurial.burialScene.graveY.toFixed(0)}`);
+   burialPositions.push({x:fullBurial.burialScene.graveX,y:fullBurial.burialScene.graveY});
   }
   previousBuried=fullBurial.burialScene.buriedCount;
   maxBuried=Math.max(maxBuried,fullBurial.burialScene.buriedCount);
@@ -321,7 +404,16 @@ try {
  assert.equal(maxBuried,20,'all twenty zombies are buried one at a time');
  assert.deepEqual(buriedOrder,fullBurial.zombies.zombies.map(z=>z.id),
   'the lasso catches and buries dancers in order');
- assert.equal(new Set(burialPositions).size,20,'each zombie is buried at a different position');
+ assert.equal(new Set(burialPositions.map(p=>`${p.x.toFixed(0)},${p.y.toFixed(0)}`)).size,20,
+  'each zombie is buried at a different position');
+ assert.ok(burialPositions.every((p,i)=>burialPositions.slice(0,i).every(q=>
+  Math.hypot((p.x-q.x)/100,(p.y-q.y)/42)>=1)),
+  'random graves stay clear of earlier graves');
+ assert.ok(burialPositions.some(p=>p.x>fullBurial.playerX+fullBurial.width*.7)
+  &&burialPositions.some(p=>p.x<fullBurial.playerX-fullBurial.width*.7)
+  &&burialPositions.some(p=>p.y<fullBurial.groundY-65)
+  &&burialPositions.some(p=>p.y>fullBurial.groundY+65),
+  'burials spread right, left, up, and down');
  assert.ok(burialLooped&&fullBurial.zombies.zombies.every(z=>!z.buried&&z.formation),
   'the complete third scene restarts with a full dancing ring');
  soundEngine.stopWhip();
