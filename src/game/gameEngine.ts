@@ -43,6 +43,8 @@ export class GameEngine {
   private queuedStrike: { x: number; y: number; power: number; automatic: boolean } | null = null;
   private autoIndex = 0;
   private activeTarget: Zombie | null = null;
+  private queuedTarget: Zombie | null = null;
+  private activeStrikeAutomatic = false;
   public groundY: number = 550;
   public stats: PlayerStats = {
     hp: 100,
@@ -128,6 +130,7 @@ export class GameEngine {
     soundEngine.stopWhip();
     this.queuedStrike = null;
     this.activeTarget = null;
+    this.queuedTarget = null;
   }
 
   public setRapidWhipSpeed(speed: number) {
@@ -141,6 +144,7 @@ export class GameEngine {
     soundEngine.stopWhip();
     this.queuedStrike = null;
     this.activeTarget = null;
+    this.queuedTarget = null;
     this.burialScene.reset(this.zombies.zombies);
     this.resetBombScene();
   }
@@ -152,6 +156,7 @@ export class GameEngine {
     soundEngine.stopWhip();
     this.queuedStrike = null;
     this.activeTarget = null;
+    this.queuedTarget = null;
     this.resetBombScene();
     this.burialScene.reset(this.zombies.zombies);
   }
@@ -259,15 +264,19 @@ export class GameEngine {
     const previousAge = previousAttack ? soundEngine.audioTime-previousAttack.start : Infinity;
     const playing = previousAttack !== null && soundEngine.audioTime < previousAttack.cycleEnd;
     if (!playing && !this.queuedStrike && this.zombies.zombies.length > 0) {
-      this.activeTarget = this.zombies.zombies[this.autoIndex % this.zombies.zombies.length];
-      const torso = this.zombies.getHitTargets(this.activeTarget)[1];
+      this.queuedTarget = this.zombies.zombies[this.autoIndex % this.zombies.zombies.length];
+      const torso = this.zombies.getHitTargets(this.queuedTarget)[1];
       this.queuedStrike = { x: torso.x, y: torso.y, power: .95+((this.autoIndex*7)%11)*.065, automatic: true };
     }
-    const target = this.activeTarget ? this.zombies.getHitTargets(this.activeTarget)[1] : this.queuedStrike;
+    const target = this.queuedStrike
+      ? this.queuedTarget ? this.zombies.getHitTargets(this.queuedTarget)[1] : this.queuedStrike
+      : this.activeTarget ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
     // Turn during recovery rather than waiting idle after every recording.
-    const nextDancer = playing && previousAge >= previousAttack.peak+.08
+    const nextDancer = playing && !this.queuedStrike && previousAge >= previousAttack.peak+.08
       ? this.zombies.zombies[this.autoIndex % this.zombies.zombies.length] : null;
-    const turnTarget = nextDancer ? this.zombies.getHitTargets(nextDancer)[1] : target;
+    const currentContact = playing && previousAge < previousAttack.peak && this.activeTarget
+      ? this.zombies.getHitTargets(this.activeTarget)[1] : null;
+    const turnTarget = currentContact ?? (nextDancer ? this.zombies.getHitTargets(nextDancer)[1] : target);
     const desiredAngle = turnTarget ? Math.atan2(turnTarget.y-(this.groundY-65*HERO_SCALE),turnTarget.x-this.playerX) : this.aimAngle;
     let aligned: boolean;
     if (this.rapidWhip && this.queuedStrike?.automatic) {
@@ -278,10 +287,14 @@ export class GameEngine {
       aligned = this.turning.step(dt, desiredAngle);
     }
     this.aimAngle = this.turning.angle;
-    if (target) this.whip.aimAt(target.x,target.y);
+    const whipTarget = playing && this.activeTarget ? this.zombies.getHitTargets(this.activeTarget)[1] : target;
+    if (whipTarget) this.whip.aimAt(whipTarget.x,whipTarget.y);
     if (this.queuedStrike && target && aligned) {
       if (this.whip.triggerSnapImpulse(target.x,target.y,this.queuedStrike.power,
-        this.rapidWhip,this.rapidWhipSpeed)) {
+        this.rapidWhip || !this.queuedStrike.automatic,this.rapidWhipSpeed)) {
+        this.activeStrikeAutomatic = this.queuedStrike.automatic;
+        this.activeTarget = this.queuedTarget;
+        this.queuedTarget = null;
         if (this.queuedStrike.automatic) this.autoIndex = (this.autoIndex+1) % this.zombies.zombies.length;
         this.queuedStrike = null;
       }
@@ -575,13 +588,19 @@ export class GameEngine {
   }
 
   public snapAt(x: number, y: number, power = 1.25) {
-    const closest = this.zombies.zombies.map(z => ({ z, target: this.zombies.getHitTargets(z)[1] }))
-      .sort((a,b) => Math.hypot(a.target.x-x,a.target.y-y)-Math.hypot(b.target.x-x,b.target.y-y))[0];
-    const lock = closest && Math.hypot(closest.target.x-x,closest.target.y-y) < 65 ? closest : null;
+    if (this.bombSceneEnabled || this.burialSceneEnabled || this.isGameOver) return false;
+    const closest = this.zombies.zombies.flatMap(z =>
+      this.zombies.getHitTargets(z).map(target => ({ z, target,
+        distance: Math.hypot(target.x-x,target.y-y) - target.r }))
+    ).sort((a,b) => a.distance-b.distance)[0];
+    const lock = closest && closest.distance < 18 ? closest : null;
     const attack = soundEngine.attack;
-    if (this.queuedStrike || (attack && soundEngine.audioTime < attack.cycleEnd)) return false;
-    this.activeTarget = lock?.z ?? null;
-    this.queuedStrike = { x: lock?.target.x ?? x, y: lock?.target.y ?? y, power, automatic: false };
+    if (attack && soundEngine.audioTime < attack.cycleEnd && this.activeStrikeAutomatic) {
+      soundEngine.stopWhip();
+    }
+    this.queuedTarget = lock?.z ?? null;
+    const torso = lock ? this.zombies.getHitTargets(lock.z)[1] : null;
+    this.queuedStrike = { x: torso?.x ?? x, y: torso?.y ?? y, power, automatic: false };
     return true;
   }
 

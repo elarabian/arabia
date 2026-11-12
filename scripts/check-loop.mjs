@@ -343,6 +343,26 @@ try {
  assert.ok(imageDraw[1]<0&&imageDraw[2]<0&&imageDraw[3]>540&&imageDraw[2]+imageDraw[4]>960,
   'background overscan covers camera shake at every edge');
  soundEngine.stopWhip();
+ const clickedGame=new GameEngine();clickedGame.restartGame();clickedGame.resize(540,960);
+ const clickedHits=[];
+ const originalClickedHit=clickedGame.handleZombieHit.bind(clickedGame);
+ clickedGame.handleZombieHit=(z,...args)=>{clickedHits.push(z.id);originalClickedHit(z,...args);};
+ for(let frame=0;frame<60&&!soundEngine.attack?.prepStart;frame++){
+  ctx.currentTime+=1/60;clickedGame.update(1/60);
+ }
+ assert.ok(soundEngine.attack?.prepStart!==undefined,'automatic whip is in its long intro');
+ const selectedZombie=clickedGame.zombies.zombies[7];
+ const selectedHead=clickedGame.zombies.getHitTargets(selectedZombie)[0];
+ assert.equal(clickedGame.snapAt(selectedHead.x,selectedHead.y),true,'head click is accepted during auto mode');
+ let manualStarted=false;
+ for(let frame=0;frame<60*3;frame++){
+  ctx.currentTime+=1/60;clickedGame.update(1/60);
+  if(soundEngine.attack?.prepStart===undefined&&soundEngine.attack?.duration===.36)manualStarted=true;
+  if(clickedHits.length)break;
+ }
+ assert.ok(manualStarted,'click starts a short manual whip without the hero intro');
+ assert.deepEqual(clickedHits,[selectedZombie.id],'the clicked zombie receives the whip hit');
+ soundEngine.stopWhip();
  const before=soundEngine.audioTime;
  ctx.currentTime+=100;soundEngine.setPaused(false);
  soundEngine.advanceClock(1/60);
