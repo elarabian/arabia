@@ -2,6 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "installCommand": "npm install",
+  "rewrites": [
+    { "source": "/game", "destination": "/index.html" },
+    { "source": "/control", "destination": "/index.html" }
+  ],
   "functions": {
     "api/tiktok.js": {
       "maxDuration": 300

@@ -86,6 +86,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <p className="text-[11px] leading-relaxed text-amber-100">
               LIVE Studio: Kaynak ekle → Link/Bağlantı → bu adresi yapıştır → Özel çözünürlük: <strong>1080 genişlik × 1920 yükseklik</strong> → Kaynağı ekle → Ekrana sığdır. Eski yatay kaynağı kaldırın; “Uzat” görüntüyü bozar.
             </p>
+            {/^http:\/\/(?:\d{1,3}\.){3}\d{1,3}/.test(obsUrl) && (
+              <p className="text-[11px] text-stone-400">
+                Bu adres localhost yerine bilgisayarın yerel ağ IP’sini kullanır. LIVE Studio yerel HTTP adresini de reddederse yayınlanan HTTPS oyun adresini kullanın.
+              </p>
+            )}
             <input type="text" readOnly value={obsUrl} aria-label="OBS oyun bağlantısı"
               onFocus={event => event.currentTarget.select()}
               className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-[11px] text-stone-200" />

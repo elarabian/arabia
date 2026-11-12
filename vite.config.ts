@@ -6,6 +6,9 @@ import {networkInterfaces} from 'node:os';
 
 export default defineConfig(() => {
   return {
+    server: {
+      allowedHosts: ['game.local', 'test.local'],
+    },
     plugins: [
       react(), tailwindcss(),
       {

@@ -8,15 +8,19 @@ Node.js 22 veya üzerini kullanın. `npm install` ardından `npm run dev` komutu
 
 TikTok LIVE bağlantısı oyun sayfası açılınca `ersanyakit` hesabı için otomatik başlar. Yayıncı adını kontrol sayfasından değiştirebilirsiniz; seçim tarayıcının yerel depolamasında saklanır. `npm run dev`, TikTok API rotasını yerelde de çalıştırır. Bağlantı kurulmazsa neden kontrol sayfasında görünür ve uygulama artan aralıklarla yeniden dener. **Bağlan** düğmesi elle hemen yeniden denemek veya yeni bir yayıncı seçmek içindir.
 
-`/game` sayfasında yalnızca oyun bulunur; `/control` sayfasında sahne, TikTok ve görüntü ayarları bulunur. Kontrol sayfasındaki **Oyun ekranını aç** düğmesi oyunu ayrı sekmede açar. Oyun pencerenin tamamını doldurur ve boyut değişince kendini yeniden ölçer.
+`/game` sayfasında yalnızca oyun bulunur; `/control` ve `/` sayfalarında sahne, TikTok ve görüntü ayarları bulunur. Kontrol sayfasındaki **Oyun ekranını aç** düğmesi oyunu ayrı sekmede açar. Oyun tuvali 1080×1920 çözünürlüktedir ve tarayıcıda 9:16 oranında sol üst köşeye yerleşir.
 
-OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın. Dikey yayın için kaynak boyutunu **1080×1920** ayarlayın; farklı boyutlarda da oyun tüm alanı doldurur. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
+OBS Browser Source için kontrol sayfasındaki **OBS oyun bağlantısı** adresini kullanın. Kaynak boyutunu **1080×1920** ayarlayın. Aynı tarayıcı profilindeki sekmeler BroadcastChannel ile, OBS gibi ayrı tarayıcılar ise `/api/control` üzerinden eşitlenir. Yerelde bu API doğrudan çalışır. Vercel'de kalıcı eşitleme için aşağıdaki Redis değişkenleri gerekir.
+
+`http://game.local`, `http://game.local/game`, `http://game.local/control` ve aynı `test.local` yollarını portsuz kullanmak için macOS hosts dosyasına `127.0.0.1 game.local test.local` satırını yönetici yetkisiyle ekleyin. Ardından `sudo npm run dev:game-local` komutunu çalıştırın. `npm run dev` komutu kendi portunda çalışmaya devam eder. Bu `.local` adları yalnızca bu bilgisayarda çözülür; başka bir cihaz veya LIVE Studio için yayınlanan HTTPS adresini kullanın.
 
 TikTok LIVE Studio'da eski yatay ekran/pencere yakalama kaynağını kaldırın. Yeni **Link/Bağlantı** kaynağına `/game` adresini ekleyin, **Özel çözünürlük** seçeneğini açıp genişliği **1080**, yüksekliği **1920** yapın. Kaynağı sahneye sığdırın; **Uzat** seçeneği yatay görüntüyü dikey yönde bozacaktır.
 
+Kontrol sayfası `localhost` veya `127.0.0.1` üzerinden açıksa kopyalama alanı LIVE Studio için yerel ağ IP'sini kullanır (örneğin `http://192.168.1.120:1453/game`). LIVE Studio yerel HTTP bağlantılarını kabul etmiyorsa Vercel'deki HTTPS `/game` adresini kullanın.
+
 ## Vercel
 
-Projeyi Vercel'e Vite projesi olarak bağlayın. Kök dizin bu klasör, build komutu `npm run build`, çıktı dizini `dist` olmalı. `vercel.json` Node.js fonksiyonunu ve en fazla 300 saniyelik çalışma süresini tanımlar. Vercel'de Fluid Compute açık olmalı.
+Projeyi Vercel'e Vite projesi olarak bağlayın. Kök dizin bu klasör, build komutu `npm run build`, çıktı dizini `dist` olmalı. `vercel.json`, `/game` ve `/control` adreslerini SPA giriş dosyasına yönlendirir; ayrıca Node.js fonksiyonunu ve en fazla 300 saniyelik çalışma süresini tanımlar. Vercel'de Fluid Compute açık olmalı.
 
 Environment Variables bölümüne şunları ekleyin ve yeniden deploy edin:
 
