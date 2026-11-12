@@ -222,9 +222,15 @@ try {
   const rescued=commandGame.zombies.zombies.find(z=>z.viewerId==='42');
   commandGame.setBurialScene(true);
   rescued.buried=true;
+  rescued.formation=undefined;
+  const outside=commandGame.zombies.zombies.find(z=>z.viewerId==='43');
+  outside.formation.angle=-Math.PI/2;
+  outside.x=commandGame.playerX;
   commandGame.burialScene.mounds.push({x:100,y:100,viewerId:'42',name:'Natur Reiki'});
   commandGame.receiveLiveGift('42','Natur Reiki');
   assert.equal(rescued.buried,false,'a gift releases its sender from a grave');
+  assert.ok(Math.abs(Math.cos(rescued.formation.angle-outside.formation.angle)+1)<.001,
+    'a rescued zombie takes the opposite ring position from the outside zombie');
   assert.equal(commandGame.burialScene.mounds.length,0,'the released grave marker is removed');
   assert.ok(['whip','hell'].includes(commandGame.liveTaskQueue.at(-1)?.kind),
     'a gift schedules a different random scene for its sender');

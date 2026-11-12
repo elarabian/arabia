@@ -657,8 +657,8 @@ export class GameEngine {
     }
   }
 
-  private placeDancer(z: Zombie, index: number) {
-    const angle = z.formation?.angle ?? index / (featureFlags.tiktokEnabled
+  private placeDancer(z: Zombie, index: number, openAngle?: number) {
+    const angle = openAngle ?? z.formation?.angle ?? index / (featureFlags.tiktokEnabled
       ? Math.max(1, this.zombies.zombies.length) : DANCER_COUNT) * Math.PI * 2 - Math.PI / 2;
     const narrowScreen = this.width / this.height < .7;
     const sideMargin = narrowScreen ? .04 : BROADCAST.right;
@@ -676,6 +676,26 @@ export class GameEngine {
     z.x = this.playerX + Math.cos(angle)*radiusX;
     z.y = centerY + Math.sin(angle)*radiusY + 55*z.scale;
     z.direction = z.x < this.playerX ? 1 : -1;
+  }
+
+  private openDancerAngle(returning: Zombie) {
+    const fullCircle = Math.PI * 2;
+    const angles = this.zombies.zombies
+      .filter(z => z !== returning && !z.buried && z.formation)
+      .map(z => ((z.formation!.angle % fullCircle) + fullCircle) % fullCircle)
+      .sort((a, b) => a - b);
+    if (!angles.length) return undefined;
+    let widestGap = -1;
+    let gapStart = angles[0];
+    for (let index = 0; index < angles.length; index++) {
+      const next = index + 1 < angles.length ? angles[index + 1] : angles[0] + fullCircle;
+      const gap = next - angles[index];
+      if (gap > widestGap) {
+        widestGap = gap;
+        gapStart = angles[index];
+      }
+    }
+    return gapStart + widestGap / 2;
   }
 
   private spawnWaveZombie() {
@@ -758,7 +778,7 @@ export class GameEngine {
   public receiveLiveGift(senderId: string, name: string) {
     const zombie = this.zombies.zombies.find(z => z.viewerId === senderId);
     if (zombie && this.burialScene.releaseViewer(zombie)) {
-      this.placeDancer(zombie, this.zombies.zombies.indexOf(zombie));
+      this.placeDancer(zombie, this.zombies.zombies.indexOf(zombie), this.openDancerAngle(zombie));
       this.chatQueue.push({ name: name || senderId, text: 'Hediye geldi! Mezardan çıktın!' });
     }
     const currentKind = this.hellSceneEnabled ? 'hell' : this.burialSceneEnabled ? 'burial' : 'whip';
