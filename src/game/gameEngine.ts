@@ -1129,6 +1129,7 @@ export class GameEngine {
 
   private updateCelebrationScene(dt: number) {
     const scene = this.celebrationScene;
+    scene.prepareFlowerThrow(this.zombies.zombies);
     const t = scene.time;
     const target = scene.target;
     const angle = this.flowerSceneEnabled && target
@@ -1138,10 +1139,13 @@ export class GameEngine {
     this.bodyLean = Math.sin(t * 2.5) * 3;
     this.handsRaised = this.moneyRainSceneEnabled ? .85 + Math.sin(t * 5) * .12 : .25;
     const shoulder = heroShoulder(this.playerX, this.groundY - this.heroJump, angle, this.bodyLean);
-    const reach = this.flowerSceneEnabled ? 28 + Math.sin(t / .78 * Math.PI * 2) * 18 : 16;
+    const throwPhase = scene.flowerThrowProgress;
+    const throwSwing = throwPhase < .35 ? -1 + throwPhase / .35 * 2
+      : 1 - Math.min(1, (throwPhase - .35) / .4);
+    const reach = this.flowerSceneEnabled ? 26 + throwSwing * 24 : 16;
     this.arm = solveArm(shoulder,
       { x: shoulder.x + Math.cos(angle) * reach,
-        y: shoulder.y - 12 + Math.sin(angle) * reach - (this.moneyRainSceneEnabled ? 42 : 0) },
+        y: shoulder.y - 12 + Math.sin(angle) * reach - (this.moneyRainSceneEnabled ? 42 : Math.max(0, -throwSwing) * 24) },
       { x: shoulder.x + 24, y: shoulder.y - 18 }, HERO_SCALE);
     scene.update(dt, this.width, this.height, this.arm.wrist, this.zombies.zombies);
   }

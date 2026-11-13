@@ -2,11 +2,15 @@ import type { Zombie } from './types';
 import { BROADCAST } from './broadcast';
 
 type FlowerKind = 'rose' | 'tulip';
-type Flower = { kind: FlowerKind; fromX: number; fromY: number; target: Zombie; age: number; duration: number };
+type Flower = { kind: FlowerKind; fromX: number; fromY: number; target: Zombie; age: number; duration: number;
+  x: number; y: number; angle: number; arcHeight: number; trail: { x: number; y: number }[] };
 type Bloom = { kind: FlowerKind; x: number; y: number; age: number };
 type Petal = { x: number; y: number; vx: number; vy: number; age: number; color: string; spin: number };
 type Money = { kind: 'coin' | 'dollar'; x: number; y: number; vx: number; vy: number;
   angle: number; spin: number; scale: number; back: boolean; phase: number };
+
+const FLOWER_THROW_INTERVAL = 1.2;
+const FLOWER_RELEASE_AT = .42;
 
 /** Reusable canvas effects, with bounded particle counts for long LIVE sessions. */
 export class CelebrationScene {
@@ -19,6 +23,18 @@ export class CelebrationScene {
   public money: Money[] = [];
   private spawnClock = 0;
   private throwIndex = 0;
+
+  public get flowerThrowProgress() { return this.spawnClock / FLOWER_THROW_INTERVAL; }
+  public get flowerInHand() { return this.mode === 'flowers' && this.spawnClock < FLOWER_RELEASE_AT; }
+
+  public prepareFlowerThrow(zombies: Zombie[]) {
+    if (this.mode !== 'flowers') return;
+    const recipients = zombies.filter(z => !z.buried && z.crowdMotion?.kind !== 'exit'
+      && z.crowdMotion?.kind !== 'enter');
+    if (!this.target || !recipients.includes(this.target)) {
+      this.target = recipients.length ? recipients[this.throwIndex % recipients.length] : null;
+    }
+  }
 
   public reset(mode: CelebrationScene['mode'], width: number, height: number) {
     this.mode = mode;
@@ -48,6 +64,7 @@ export class CelebrationScene {
   public update(dt: number, width: number, height: number, origin: { x: number; y: number }, zombies: Zombie[]) {
     if (!this.mode) return;
     this.time += dt;
+    const previousClock = this.spawnClock;
     this.spawnClock += dt;
     if (this.mode === 'money') {
       while (this.spawnClock >= 1 / 26) {
@@ -67,17 +84,16 @@ export class CelebrationScene {
 
     const recipients = zombies.filter(z => !z.buried && z.crowdMotion?.kind !== 'exit'
       && z.crowdMotion?.kind !== 'enter');
-    if (this.spawnClock >= .78) {
-      this.spawnClock %= .78;
-      this.target = recipients[this.throwIndex % recipients.length] ?? null;
-      if (this.target) {
-        this.flowers.push({ kind: this.throwIndex % 2 === 0 ? 'rose' : 'tulip',
-          fromX: origin.x, fromY: origin.y, target: this.target, age: 0, duration: .95 });
-        this.throwIndex++;
-      }
-    }
     for (const flower of this.flowers) {
       flower.age += dt;
+      const t = Math.min(1, flower.age / flower.duration);
+      const endX = flower.target.x, endY = flower.target.y - 55 * flower.target.scale;
+      flower.trail.push({ x: flower.x, y: flower.y });
+      if (flower.trail.length > 8) flower.trail.shift();
+      flower.x = flower.fromX + (endX - flower.fromX) * t;
+      flower.y = Math.max(height * .24 + 30,
+        flower.fromY + (endY - flower.fromY) * t - Math.sin(t * Math.PI) * flower.arcHeight);
+      flower.angle = Math.atan2(endY - flower.fromY, endX - flower.fromX) + Math.PI / 2 + t * Math.PI * 2;
       if (flower.age < flower.duration || !recipients.includes(flower.target)) continue;
       const z = flower.target;
       z.danceTimer = Math.max(z.danceTimer, 3);
@@ -99,7 +115,21 @@ export class CelebrationScene {
       petal.vy += 28 * dt;
     }
     this.petals = this.petals.filter(p => p.age < 1.7).slice(-100);
-    if (this.target && !recipients.includes(this.target)) this.target = null;
+    this.prepareFlowerThrow(zombies);
+    if (previousClock < FLOWER_RELEASE_AT && this.spawnClock >= FLOWER_RELEASE_AT && this.target) {
+      const fromY = origin.y - 7;
+      const endY = this.target.y - 55 * this.target.scale;
+      const headroom = Math.max(0, Math.min(fromY, endY) - (height * .24 + 36));
+      this.flowers.push({ kind: this.throwIndex % 2 === 0 ? 'rose' : 'tulip',
+        fromX: origin.x, fromY, target: this.target, age: 0, duration: .85,
+        x: origin.x, y: fromY, angle: -.3, arcHeight: Math.min(65, headroom), trail: [] });
+    }
+    if (this.spawnClock >= FLOWER_THROW_INTERVAL) {
+      this.spawnClock %= FLOWER_THROW_INTERVAL;
+      this.throwIndex++;
+      this.target = null;
+      this.prepareFlowerThrow(zombies);
+    }
   }
 
   public drawSky(ctx: CanvasRenderingContext2D, width: number, height: number) {
@@ -128,14 +158,17 @@ export class CelebrationScene {
   public drawForeground(ctx: CanvasRenderingContext2D, hand: { x: number; y: number }) {
     if (this.mode === 'money') { this.drawMoney(ctx, false); return; }
     if (this.mode !== 'flowers') return;
-    // The next flower is visible in the throwing hand between launches.
-    drawFlower(ctx, hand.x, hand.y - 7, -.3, .9, this.throwIndex % 2 === 0 ? 'rose' : 'tulip');
+    // The hand is empty after release, until the next wind-up starts.
+    if (this.flowerInHand) drawFlower(ctx, hand.x, hand.y - 7, -.3, 1.1,
+      this.throwIndex % 2 === 0 ? 'rose' : 'tulip');
     for (const flower of this.flowers) {
-      const t = Math.min(1, flower.age / flower.duration);
-      const endX = flower.target.x, endY = flower.target.y - 55 * flower.target.scale;
-      const x = flower.fromX + (endX - flower.fromX) * t;
-      const y = flower.fromY + (endY - flower.fromY) * t - Math.sin(t * Math.PI) * 95;
-      drawFlower(ctx, x, y, Math.sin(t * Math.PI) * 1.3, 1, flower.kind);
+      if (flower.trail.length > 1) {
+        ctx.save();ctx.strokeStyle = flower.kind === 'rose' ? 'rgba(253,164,175,.55)' : 'rgba(253,224,71,.55)';
+        ctx.lineWidth = 2;ctx.lineCap = 'round';ctx.beginPath();
+        flower.trail.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+        ctx.lineTo(flower.x, flower.y);ctx.stroke();ctx.restore();
+      }
+      drawFlower(ctx, flower.x, flower.y, flower.angle, 1.2, flower.kind);
     }
     for (const petal of this.petals) {
       ctx.save();
