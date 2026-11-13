@@ -10,7 +10,7 @@ import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type 
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
   captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot, type ControlScene } from './controlSync';
 import { WORLD_MAPS, isWorldMap, type WorldMap } from './game/worldMaps';
-import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain, Crown, Ship, Flower2, Coins } from 'lucide-react';
+import { Play, RotateCcw, Skull } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
@@ -774,210 +774,30 @@ export default function App() {
       </main>
       )}
       {!obsMode && (
-        <aside className="control-area" aria-label="Oyun kontrolleri ve ayarları">
-      <div className="control-toolbar">
-        <span className={gameOnline ? 'text-emerald-300' : 'text-amber-300'}>
-          Oyun: {gameOnline ? 'bağlı' : 'bağlantı bekleniyor'}
-        </span>
-        <a href={gameUrl} target="_blank" rel="noreferrer">Oyunu tarayıcıda önizle</a>
-        <button type="button" onClick={() => sendCommand('pause')}>
-          {isPaused ? 'Devam et' : 'Duraklat'}
-        </button>
-        <button type="button" onClick={() => sendCommand('restart')}>
-          Yeniden başlat
-        </button>
-        {(relayReadError || relayWriteError) && <span className="text-red-300" role="alert">
-          {relayReadError || relayWriteError}
-        </span>}
-      </div>
-      {gameState === 'PLAYING' && (
-        <aside className="rapid-whip-panel z-30 rounded-xl border border-amber-600/40 bg-stone-950/95 p-3 shadow-xl">
-          {featureFlags.tiktokEnabled && (
-            <div className="mb-2 text-[10px] text-stone-200"
-              title={liveMessage || `TikTok: ${liveStatus}`} aria-label={`TikTok: ${liveStatus}`}>
-              <div className="flex items-center gap-1">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${liveStatus === 'connected' ? 'bg-emerald-400' : liveStatus === 'connecting' ? 'bg-amber-400' : 'bg-red-400'}`} />
-                <span className="rapid-whip-copy truncate">TikTok {liveStatus === 'connected' ? 'bağlı' : liveStatus === 'connecting' ? 'bağlanıyor' : liveStatus === 'offline' ? 'yayın çevrimdışı' : 'bağlantı hatası'}</span>
-              </div>
-              <div className="rapid-whip-copy mt-1 text-pink-300">{remoteStats.zombies} zombi · ♥ {remoteStats.likes}</div>
-            </div>
-          )}
-          <div className="scene-selector mb-3 grid grid-cols-2 gap-1" aria-label="Sahne seçimi">
-            <button
-              type="button"
-              aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.celebrationScene.mode && !engine.bombSceneEnabled && !engine.burialSceneEnabled && !engine.hellSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled}
-              onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.celebrationScene.mode && !engine.bombSceneEnabled && !engine.burialSceneEnabled && !engine.hellSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled
-                ? 'border-amber-500 bg-amber-600 text-stone-950'
-                : 'border-stone-700 bg-stone-900 text-stone-300'}`}
-            >
-              <Zap className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Kırbaç</span>
-            </button>
-            <button
-              type="button"
-              aria-label="Bomba sahnesi"
-              aria-pressed={engine.bombSceneEnabled}
-              onClick={() => changeScene('BOMB')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.bombSceneEnabled
-                ? 'border-orange-400 bg-orange-600 text-white'
-                : 'border-stone-700 bg-stone-900 text-stone-300'}`}
-            >
-              <Bomb className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Bomba</span>
-            </button>
-            <button
-              type="button"
-              aria-label="Gömme sahnesi"
-              aria-pressed={engine.burialSceneEnabled}
-              onClick={() => changeScene('BURIAL')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.burialSceneEnabled
-                ? 'border-emerald-400 bg-emerald-700 text-white'
-                : 'border-stone-700 bg-stone-900 text-stone-300'}`}
-            >
-              <Shovel className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Gömme</span>
-            </button>
-            <button type="button" aria-label="Cehennem sahnesi" aria-pressed={engine.hellSceneEnabled}
-              onClick={() => changeScene('HELL')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.hellSceneEnabled
-                ? 'border-red-400 bg-red-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Flame className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Cehennem</span>
-            </button>
-            <button type="button" aria-label="Tesbih sahnesi" aria-pressed={engine.tasbihMode}
-              onClick={() => changeScene('TASBIH')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.tasbihMode
-                ? 'border-yellow-300 bg-yellow-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <CircleDot className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Tesbih</span>
-            </button>
-            <button type="button" aria-label="Deve sahnesi" aria-pressed={engine.camelSceneEnabled}
-              onClick={() => changeScene('CAMEL')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.camelSceneEnabled
-                ? 'border-amber-300 bg-amber-800 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Mountain className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Deve</span>
-            </button>
-            <button type="button" aria-label="Firavun sahnesi" aria-pressed={engine.pharaohSceneEnabled}
-              onClick={() => changeScene('PHARAOH')}
-              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.pharaohSceneEnabled
-                ? 'border-cyan-300 bg-cyan-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Crown className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Firavun · Nehir</span>
-            </button>
-            <button type="button" aria-label="Nuh'un Gemisi sahnesi" aria-pressed={engine.noahSceneEnabled}
-              onClick={() => changeScene('NOAH')}
-              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.noahSceneEnabled
-                ? 'border-sky-300 bg-sky-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Ship className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Nuh'un Gemisi</span>
-            </button>
-            <button type="button" aria-label="Gül ve Lale sahnesi" aria-pressed={engine.flowerSceneEnabled}
-              onClick={() => changeScene('FLOWERS')}
-              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.flowerSceneEnabled
-                ? 'border-pink-300 bg-pink-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Flower2 className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Gül ve Lale</span>
-            </button>
-            <button type="button" aria-label="Altın ve Dolar Yağmuru sahnesi" aria-pressed={engine.moneyRainSceneEnabled}
-              onClick={() => changeScene('MONEY_RAIN')}
-              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.moneyRainSceneEnabled
-                ? 'border-yellow-300 bg-yellow-800 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              <Coins className="h-3.5 w-3.5 shrink-0" />
-              <span className="rapid-whip-copy">Altın ve Dolar</span>
-            </button>
-          </div>
-          {engine.flowerSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-pink-300">
-              <Flower2 className="h-4 w-4" /><span className="text-xs font-bold">Gül ve Lale Sahnesi</span>
-            </div>
-          ) : engine.moneyRainSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-yellow-300">
-              <Coins className="h-4 w-4" /><span className="text-xs font-bold">Altın ve Dolar Yağmuru</span>
-            </div>
-          ) : engine.noahSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-sky-300">
-              <Ship className="h-4 w-4" /><span className="text-xs font-bold">Nuh'un Gemisi · {Math.round(engine.noahBuildProgress * 100)}%</span>
-            </div>
-          ) : engine.pharaohSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-cyan-300">
-              <Crown className="h-4 w-4" /><span className="text-xs font-bold">Firavun Sahnesi</span>
-            </div>
-          ) : engine.camelSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-amber-300">
-              <Mountain className="h-4 w-4" /><span className="text-xs font-bold">Deve Sahnesi</span>
-            </div>
-          ) : engine.tasbihMode ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-yellow-300">
-              <CircleDot className="h-4 w-4" /><span className="text-xs font-bold">Tesbih Sahnesi</span>
-            </div>
-          ) : engine.hellSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-red-400">
-              <Flame className="h-4 w-4" /><span className="text-xs font-bold">Cehennem Sahnesi</span>
-            </div>
-          ) : engine.burialSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-emerald-400">
-              <Shovel className="h-4 w-4" />
-              <span className="text-xs font-bold">Gömme Sahnesi</span>
-            </div>
-          ) : engine.bombSceneEnabled ? (
-            <div className="rapid-whip-copy flex items-center gap-2 text-orange-400">
-              <Bomb className="h-4 w-4" />
-              <span className="text-xs font-bold">Bomba Sahnesi</span>
-            </div>
-          ) : <>
-          <div className="flex items-center justify-between gap-2">
-            <div className="rapid-whip-copy flex items-center gap-2 text-amber-400">
-              <Zap className="h-4 w-4 shrink-0" />
-              <span className="text-xs font-bold uppercase tracking-wide">Seri Kırbaç</span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-label="Seri kırbaç modu"
-              aria-checked={rapidWhip}
-              onClick={toggleRapidWhip}
-              className={`relative h-7 w-12 shrink-0 cursor-pointer rounded-full border transition-colors ${rapidWhip ? 'border-amber-400 bg-amber-500' : 'border-stone-600 bg-stone-800'}`}
-            >
-              <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${rapidWhip ? 'translate-x-5' : ''}`} />
-            </button>
-          </div>
-          <p className="rapid-whip-copy mt-2 text-[11px] leading-snug text-stone-400">
-            Açıkken tüm zombilere sırayla hızlı vurur.
-          </p>
-          <div className="rapid-whip-speed mt-3 border-t border-stone-700 pt-2">
-            <div className="rapid-whip-speed-label mb-1 flex items-center justify-between text-[11px] text-stone-300">
-              <span className="rapid-whip-speed-name">Hız</span>
-              <output>{rapidWhipSpeed.toFixed(1)}×</output>
-            </div>
-            <input
-              type="range"
-              aria-label="Seri kırbaç hızı"
-              min="0.1"
-              max="2"
-              step="0.1"
-              value={rapidWhipSpeed}
-              onChange={changeRapidWhipSpeed}
-              className="rapid-whip-slider w-full cursor-pointer accent-amber-500"
-            />
-          </div>
-          </>}
-        </aside>
-      )}
         <SettingsModal
           engine={engine}
           onRefresh={() => { setTick((t) => t + 1); publishControl(); }}
-          onBombSceneChange={enabled => changeScene(enabled ? 'BOMB' : 'WHIP')}
-          onBurialSceneChange={enabled => changeScene(enabled ? 'BURIAL' : 'WHIP')}
-          onHellSceneChange={enabled => changeScene(enabled ? 'HELL' : 'WHIP')}
+          currentScene={captureControlSnapshot(engine, currentMap, tiktokUsername).scene}
+          onSceneChange={changeScene}
+          rapidWhip={rapidWhip}
+          rapidWhipSpeed={rapidWhipSpeed}
+          onRapidWhipChange={toggleRapidWhip}
+          onRapidWhipSpeedChange={changeRapidWhipSpeed}
+          gameOnline={gameOnline}
+          isPaused={isPaused}
+          onPause={() => sendCommand('pause')}
+          onRestart={() => sendCommand('restart')}
+          viewerCount={remoteStats.zombies}
+          likeCount={remoteStats.likes}
+          relayError={relayReadError || relayWriteError}
+          gameUrl={gameUrl}
           tiktokUsername={tiktokUsername}
           tiktokStatus={liveStatus}
           tiktokMessage={liveMessage}
           onTikTokUsernameChange={changeTikTokUsername}
           currentMap={currentMap}
           onSelectMap={handleSelectMap}
+          mapBackgrounds={MAP_BG_URLS}
           obsUrl={studioUrl.toString()}
           controlKey={controlKey}
           onControlKeyChange={changeControlKey}
@@ -986,7 +806,6 @@ export default function App() {
           publishedSiteError={publishedSiteError}
           onOpenPublishedControl={openPublishedControl}
         />
-        </aside>
       )}
     </div>
   );

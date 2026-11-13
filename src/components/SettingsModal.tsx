@@ -119,7 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = (props) => {
             </button>)}
           </div>
           {currentScene === 'WHIP' && <div className="control-rapid-row">
-            <div className="control-inline"><label htmlFor="rapid-toggle">Seri kırbaç</label>
+            <div className="control-inline"><span>Seri kırbaç</span>
               <Toggle label="Seri kırbaç modu" checked={props.rapidWhip} onChange={props.onRapidWhipChange} /></div>
             <div className="control-speed"><label htmlFor="rapid-speed">Hız</label>
               <input id="rapid-speed" type="range" aria-label="Seri kırbaç hızı" min="0.1" max="2" step="0.1"
@@ -127,7 +127,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = (props) => {
               <output htmlFor="rapid-speed">{props.rapidWhipSpeed.toFixed(1)}×</output></div>
           </div>}
           {currentScene === 'NOAH' && <div className="control-progress" aria-label="Gemi yapım ilerlemesi">
-            <span>Gemi yapımı</span><progress max="100" value={engine.noahBuildProgress * 100} />
+            <span>Gemi yapımı</span><progress aria-label="Gemi yapım ilerlemesi" max="100" value={engine.noahBuildProgress * 100} />
             <output>{Math.round(engine.noahBuildProgress * 100)}%</output>
           </div>}
         </section>
