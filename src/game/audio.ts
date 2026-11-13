@@ -136,6 +136,7 @@ class SoundEngine {
       this.resumePending = true;
       void this.ctx.resume().catch(() => {}).finally(() => { this.resumePending = false; });
     }
+    this.advanceChatSpeech();
     // A missing onended callback must not silence all subsequent reactions.
     if (this.recordedReaction && this.timeline >= this.nextReactionAt) {
       this.recordedReaction.stop();
@@ -167,6 +168,7 @@ class SoundEngine {
   private greeting: SpeechSynthesisUtterance | null = null;
 
   public sayGreeting() {
+    if (this.chatUtterance || this.chatSpeechQueue.length) return;
     this.stopGreeting();
     if (this.playRecorded('habibi_come_to_dubai.mp3', true)) return;
     if (this.muted || !('speechSynthesis' in window)) return;
@@ -199,6 +201,51 @@ class SoundEngine {
 
   private reaction: SpeechSynthesisUtterance | null = null;
   private heroUtterance: SpeechSynthesisUtterance | null = null;
+  private chatSpeechQueue: string[] = [];
+  private chatUtterance: SpeechSynthesisUtterance | null = null;
+  private chatSpeechStartedAt = 0;
+  private speechPaused = false;
+
+  public queueChatSpeech(name: string, message: string) {
+    if (this.muted || typeof window === 'undefined' || !window.speechSynthesis
+      || typeof SpeechSynthesisUtterance === 'undefined') return;
+    const spokenName = name.normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim() || 'İzleyici';
+    this.chatSpeechQueue.push(`${spokenName} diyor ki: ${message.slice(0, 1000)}`);
+    if (this.chatSpeechQueue.length > 16) this.chatSpeechQueue.shift();
+    this.advanceChatSpeech();
+  }
+
+  public clearChatSpeech() {
+    this.chatSpeechQueue = [];
+    const active = this.chatUtterance;
+    this.chatUtterance = null;
+    if (active && typeof window !== 'undefined') window.speechSynthesis?.cancel();
+  }
+
+  private advanceChatSpeech() {
+    if (this.muted || this.speechPaused || typeof window === 'undefined' || !window.speechSynthesis) return;
+    if (this.chatUtterance && this.audioTime - this.chatSpeechStartedAt > 45) {
+      this.chatUtterance = null;
+      window.speechSynthesis.cancel();
+    }
+    if (this.chatUtterance || !this.chatSpeechQueue.length || this.heroUtterance
+      || this.reaction || this.recordedReaction || this.greeting) return;
+    const utterance = new SpeechSynthesisUtterance(this.chatSpeechQueue.shift()!);
+    const voices = window.speechSynthesis.getVoices().filter(voice => /^tr/i.test(voice.lang));
+    utterance.voice = voices.find(voice => !/Yelda|Emel|Seda|Female/i.test(voice.name)) ?? voices[0] ?? null;
+    utterance.lang = utterance.voice?.lang ?? 'tr-TR';
+    utterance.rate = 1.05;utterance.pitch = .82;utterance.volume = this.volume;
+    this.chatUtterance = utterance;
+    this.chatSpeechStartedAt = this.audioTime;
+    const finish = () => {
+      if (this.chatUtterance !== utterance) return;
+      this.chatUtterance = null;
+      this.advanceChatSpeech();
+    };
+    utterance.onend = finish;utterance.onerror = finish;
+    try { window.speechSynthesis.speak(utterance); }
+    catch { this.chatUtterance = null; }
+  }
   private nextTauntAt = 0;
   private nextPrayerAt = 0;
   private previousTaunt = -1;
@@ -230,7 +277,7 @@ class SoundEngine {
 
   private speakHero(line: string) {
     if (this.muted || typeof window === 'undefined' || !('speechSynthesis' in window)
-      || this.reaction || this.recordedReaction || this.heroUtterance) return;
+      || this.reaction || this.recordedReaction || this.heroUtterance || this.chatUtterance || this.chatSpeechQueue.length) return;
     const utterance = new SpeechSynthesisUtterance(line);
     const voices = window.speechSynthesis.getVoices().filter(voice => /^tr/i.test(voice.lang));
     utterance.voice = voices.find(voice => !/Yelda|Emel|Seda|Female/i.test(voice.name)) ?? voices[0] ?? null;
@@ -248,7 +295,8 @@ class SoundEngine {
   private nextReactionAt = 0;
 
   public sayZombieReaction(): string | null {
-    if (this.audioTime < this.nextReactionAt || this.reaction || this.recordedReaction || this.heroUtterance) return null;
+    if (this.audioTime < this.nextReactionAt || this.reaction || this.recordedReaction || this.heroUtterance
+      || this.chatUtterance || this.chatSpeechQueue.length) return null;
     // Distinct comic deliveries; readable captions stay separate from spoken elongations.
     const lines = [
       { file: 'ahhh_yandim_habibi.mp3', text: 'Ahhh, yandım habibi!', spoken: 'Ahhh! Yandım, habibiii!', rate: .98, pitch: 1.45 },
@@ -267,7 +315,7 @@ class SoundEngine {
     if (this.muted) return text;
     this.stopGreeting();
     if (this.playRecorded(delivery.file)) return text;
-    if (!('speechSynthesis' in window)) return text;
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return text;
     const utterance = new SpeechSynthesisUtterance(delivery.spoken);
     const language = text.includes('come to') ? 'en' : 'tr';
     const voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith(language));
@@ -474,11 +522,13 @@ class SoundEngine {
   }
 
   public setPaused(paused: boolean) {
+    this.speechPaused = paused;
     this.lastContextTime = this.ctx?.currentTime ?? 0;
     if ('speechSynthesis' in window) {
       if (paused) window.speechSynthesis.pause();
       else window.speechSynthesis.resume();
     }
+    if (!paused) this.advanceChatSpeech();
     if (!this.ctx) return;
     void (paused ? this.ctx.suspend() : this.ctx.resume()).catch(console.error);
   }
@@ -545,6 +595,7 @@ class SoundEngine {
   }
 
   public playHeroCelebration() {
+    if (this.chatUtterance || this.chatSpeechQueue.length) return false;
     return this.playHeroRaise();
   }
 
@@ -578,6 +629,7 @@ class SoundEngine {
     this.volume = Math.max(0, Math.min(1, vol));
     if (this.greeting) this.greeting.volume = this.volume;
     if (this.reaction) this.reaction.volume = this.volume;
+    if (this.chatUtterance) this.chatUtterance.volume = this.volume;
     if (this.masterGain && !this.muted) {
       this.masterGain.gain.setValueAtTime(this.volume, this.ctx?.currentTime || 0);
     }
@@ -586,7 +638,7 @@ class SoundEngine {
   public setMuted(muted: boolean) {
     this.muted = muted;
     if (this.backgroundGain) this.backgroundGain.gain.setValueAtTime(muted ? 0 : BACKGROUND_VOLUME, this.ctx?.currentTime || 0);
-    if (muted) { this.stopGreeting(); this.stopReaction(); }
+    if (muted) { this.stopGreeting(); this.stopReaction(); this.clearChatSpeech(); }
     if (this.masterGain) {
       this.masterGain.gain.setValueAtTime(muted ? 0 : this.volume, this.ctx?.currentTime || 0);
     }

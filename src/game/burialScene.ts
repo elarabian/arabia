@@ -12,7 +12,9 @@ const smooth = (value: number) => {
 
 /** A staged lasso, drag, excavation and burial sequence for one dancer at a time. */
 export class BurialScene {
-  public mode: 'burial' | 'hell' = 'burial';
+  public mode: 'burial' | 'hell' | 'whip' = 'burial';
+  public whipHits = 0;
+  private targetFormation: Zombie['formation'];
   public preferredViewerId: string | null = null;
   public time = 0;
   public buriedCount = 0;
@@ -47,6 +49,11 @@ export class BurialScene {
   private fleeing = new Map<Zombie, NonNullable<Zombie['formation']>>();
 
   private chooseGrave(playerX: number, width: number, groundY: number) {
+    if (this.mode === 'whip') {
+      this.graveX = playerX + width * .9;
+      this.graveY = groundY;
+      return;
+    }
     if (this.mode === 'hell') {
       this.graveX = playerX + width * 1.15;
       this.graveY = groundY + 20;
@@ -79,6 +86,8 @@ export class BurialScene {
 
   public reset(zombies: Zombie[]) {
     this.time = 0;
+    this.whipHits = 0;
+    this.targetFormation = undefined;
     this.prepDuration = 0;
     this.buriedCount = 0;
     this.target = null;
@@ -164,6 +173,7 @@ export class BurialScene {
         return;
       }
       this.lastTarget = this.target;
+      this.targetFormation = this.target.formation;
       this.time = 0;
       this.digStep = -1;
       this.activeGraveIndex = this.buriedCount;
@@ -175,6 +185,12 @@ export class BurialScene {
       this.buryEnd = this.digEnd + (this.mode === 'hell' ? .8 : 1.1);
       this.returnStart = this.buryEnd + (this.mode === 'hell' ? .9 : 1.4);
       this.cycleEnd = this.returnStart + Math.max(3.2, travel / 175);
+      if (this.mode === 'whip') {
+        this.digEnd = this.walkEnd + 2.8;
+        this.buryEnd = this.digEnd;
+        this.returnStart = this.buryEnd + .35;
+        this.cycleEnd = this.returnStart + Math.max(3.2, travel / 175);
+      }
       this.prepDuration = soundEngine.getHeroSoundDuration();
       soundEngine.playHeroCelebration();
     }
@@ -266,7 +282,7 @@ export class BurialScene {
       z.vx = 0;
       soundEngine.playShovelDig();
     }
-    if (t >= 1.05 && t < (this.mode === 'hell' ? this.walkEnd : this.digEnd)) {
+    if (t >= 1.05 && t < (this.mode !== 'burial' ? this.walkEnd : this.digEnd)) {
       // A damped pull keeps the captive behind the hunter and lets it lag on each step.
       const tetherX = this.heroX - directionX * 90;
       const tetherY = this.heroY - directionY * 90;
@@ -316,13 +332,30 @@ export class BurialScene {
         soundEngine.playShovelDig();
       }
     }
+    if (this.mode === 'whip' && t >= this.walkEnd && t < this.digEnd) {
+      z.x += (this.graveX - z.x) * Math.min(1, dt * 8);
+      z.y += (this.graveY - z.y) * Math.min(1, dt * 8);
+      z.vx = 0;z.burialDragging = false;z.blastAngle = undefined;
+      for (let hit = 0; hit < 3; hit++) {
+        const hitAt = this.walkEnd + .35 + hit * .85;
+        if (previousAction < hitAt && t >= hitAt) {
+          this.whipHits++;
+          soundEngine.playBurialWhip();
+          atmosphere.addSparks(z.x, z.y - 48 * z.scale, '#fbbf24', 8);
+        }
+      }
+    }
     if (previousAction < this.buryEnd && t >= this.buryEnd) {
-      z.buried = true;
+      z.buried = this.mode !== 'whip';
       z.burialClipY = undefined;
       z.blastAngle = undefined;
       z.blastGroundY = undefined;
       z.burialDragging = false;
-      this.buriedCount++;
+      if (this.mode === 'whip') {
+        z.formation = this.targetFormation;
+        z.danceTimer = 3;
+        this.released.add(z);
+      } else this.buriedCount++;
       for (const [other, formation] of this.fleeing) {
         other.formation = formation;
         other.vx = 0;
@@ -333,17 +366,20 @@ export class BurialScene {
         this.mounds.push({ x: this.graveX, y: this.graveY, name: z.viewerName, viewerId: z.viewerId });
         atmosphere.addImpactDust(this.graveX, this.graveY, 1.25, 450);
         soundEngine.playShovelDig();
-      } else {
+      } else if (this.mode === 'hell') {
         this.skeletons.push({ x: this.graveX, y: this.graveY });
         atmosphere.addSparks(this.graveX, this.graveY - 15, '#ffb21a', 35);
         atmosphere.triggerScreenShake(12);
       }
     }
-    if (this.time >= this.prepDuration + this.cycleEnd - 1e-6) this.target = null;
+    if (this.time >= this.prepDuration + this.cycleEnd - 1e-6) {
+      this.target = null;
+      if (this.mode === 'whip') this.needsReset = true;
+    }
   }
 
   public stepRope(dt: number, handX: number, handY: number) {
-    if (!this.target || this.actionTime >= (this.mode === 'hell' ? this.walkEnd : this.digEnd)) {
+    if (!this.target || this.actionTime >= (this.mode !== 'burial' ? this.walkEnd : this.digEnd)) {
       this.ropeNodes = [];
       return;
     }
@@ -417,6 +453,7 @@ export class BurialScene {
   }
 
   public drawGround(ctx: CanvasRenderingContext2D) {
+    if (this.mode === 'whip') return;
     const t = this.actionTime, x = this.graveX, y = this.graveY;
     ctx.save();
     if (this.mode === 'hell') {
@@ -596,6 +633,19 @@ export class BurialScene {
           10 * this.target.scale, -.15, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.restore();
+    }
+    if (this.mode === 'whip') {
+      if (t >= this.walkEnd && t < this.digEnd) {
+        const phase = ((t - this.walkEnd) % .85) / .85;
+        const reach = Math.sin(Math.min(1, phase / .42) * Math.PI / 2);
+        const endX = handX + (this.target.x - handX) * reach;
+        const endY = handY + (this.target.y - 48 * this.target.scale - handY) * reach;
+        ctx.save();ctx.strokeStyle = '#6b3d1d';ctx.lineWidth = 3;ctx.lineCap = 'round';
+        ctx.beginPath();ctx.moveTo(handX, handY);
+        ctx.quadraticCurveTo((handX + endX) / 2, Math.min(handY, endY) - 65 * (1 - reach), endX, endY);
+        ctx.stroke();ctx.strokeStyle = '#e5bb7e';ctx.lineWidth = 1;ctx.stroke();ctx.restore();
+      }
+      return;
     }
     if (t >= this.walkEnd && t < this.buryEnd) {
       const digging = t < this.digEnd;

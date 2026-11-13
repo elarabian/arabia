@@ -9,7 +9,7 @@ export const backgroundTracks = Object.entries(files).flatMap(([path, url]) => {
   const match = /^(?:background|bacgkround)(?:_(\d+))?\.mp3$/i.exec(file);
   if (!match) return [];
   const number = Number(match[1] ?? 1);
-  if (number < 1 || number > 5) return [];
+  if (number < 1 || number > 6) return [];
   return [{ id: number === 1 ? 'background' : `background_${number}`, number, file, url }];
 }).sort((a, b) => a.number - b.number || a.file.localeCompare(b.file));
 

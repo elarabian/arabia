@@ -38,6 +38,9 @@ await handler({ method: 'GET', url: '/api/tiktok?username=%40naturreiki' }, resp
 assert.ok(events.some(value => value.includes('event: ready') && value.includes('123456')),
   'the browser receives a room ID for reconnecting without a new room lookup');
 connection.emit('member', { user: { userId: '42', nickname: 'Natur Reiki' } });
+connection.emit('member', { user: { userId: '42', nickname: 'Natur Reiki' } });
+assert.equal(events.filter(value => value.includes('event: viewer') && value.includes('Natur Reiki')).length, 2,
+  'repeat activity reaches direct sources so their departure clock stays current');
 connection.emit('like', { count: 4, user: { id: '43', displayId: 'nexus__m34' } });
 connection.emit('like', { count: 15 });
 connection.emit('like', { likeCount: 4 });
@@ -149,7 +152,7 @@ const root = new URL('../', import.meta.url).pathname;
 const dir = await mkdtemp(join(tmpdir(), 'kirbac-live-'));
 try {
   await build({
-    stdin: { contents: "export { GameEngine } from './src/game/gameEngine'; export { soundEngine } from './src/game/audio'; export { parseLiveAction } from './src/live/commands'; export { captureControlSnapshot, applyControlSnapshot, parseControlSnapshot } from './src/controlSync';", resolveDir: root },
+    stdin: { contents: "export { GameEngine } from './src/game/gameEngine'; export { soundEngine } from './src/game/audio'; export { parseLiveAction } from './src/live/commands'; export { connectTikTokLive } from './src/live/tiktok'; export { captureControlSnapshot, applyControlSnapshot, parseControlSnapshot } from './src/controlSync';", resolveDir: root },
     bundle: true, platform: 'node', format: 'esm', outfile: join(dir, 'game.mjs'),
     define: { 'import.meta.env': '{"VITE_TIKTOK_ENABLED":"true"}' },
     plugins: [{ name: 'assets', setup(b) {
@@ -163,7 +166,7 @@ try {
       }));
     } }],
   });
-  const { GameEngine, soundEngine, parseLiveAction, captureControlSnapshot,
+  const { GameEngine, soundEngine, parseLiveAction, connectTikTokLive, captureControlSnapshot,
     applyControlSnapshot, parseControlSnapshot } = await import(pathToFileURL(join(dir, 'game.mjs')).href);
   const viewers = [{ id: '42', name: 'Natur Reiki', handle: 'naturreiki' },
     { id: '43', name: 'Beyzagust', handle: 'beyzagust34' }];
@@ -177,6 +180,251 @@ try {
     { kind: 'burial', targetId: '42' });
   assert.deepEqual(parseLiveAction('şimdi bombayı patlat!', '42', viewers),
     { kind: 'bomb' });
+  const decoratedViewers = [
+    { id: 'plain', name: 'Ali', handle: 'ali34' },
+    { id: 'emoji', name: '🔥Ali👑', handle: 'kralali' },
+    { id: 'symbols', name: 'A[li].*', handle: 'symbols' },
+    { id: 'only-emoji', name: '🦁👑', handle: 'lion' },
+    { id: 'styled', name: '𝓐𝔂𝓼𝓮✨', handle: 'ayse34' },
+    { id: 'unicode', name: 'أحمد🌙', handle: 'ahmed34' },
+    { id: 'longer', name: '🔥Ali Veli👑', handle: 'aliveli34' },
+    { id: 'cyrillic', name: 'Анна🌸', handle: 'anna34' },
+    { id: 'cjk', name: '王小明🐉', handle: 'xiaoming34' },
+  ];
+  for (const [message, targetId] of [
+    ['göm 🔥Ali👑', 'emoji'], ['gom Ali', 'emoji'],
+    ['gom @kralali', 'emoji'], ['göm A[li].*', 'symbols'],
+    ['gom 🦁👑', 'only-emoji'], ['GÖM Ayse', 'styled'], ['göm أحمد🌙', 'unicode'],
+    ['gom Ali Veli', 'longer'],
+  ]) {
+    const candidates = message === 'gom Ali' ? decoratedViewers.filter(v => v.id !== 'plain') : decoratedViewers;
+    assert.deepEqual(parseLiveAction(message, '42', candidates), { kind: 'burial', targetId },
+      `decorated nickname resolves correctly: ${message}`);
+  }
+  assert.deepEqual(parseLiveAction('gom Alim', '42', decoratedViewers),
+    { kind: 'burial', targetId: '42' }, 'nickname matching respects word boundaries');
+  for (const [command, kind] of [['CEHENNEM', 'hell'], ['KiRbAcLa', 'whip'], ['GOM', 'burial'], ['DeVeYeBiN', 'camel'], ['deveye bin', 'camel']]) {
+    assert.deepEqual(parseLiveAction(`${command} @KRALALI`, '42', decoratedViewers),
+      { kind, targetId: 'emoji' }, `${command} extracts and lowercases the nickname argument`);
+    assert.deepEqual(parseLiveAction(command, '42', decoratedViewers),
+      { kind, targetId: '42' }, `${command} defaults to the sender`);
+  }
+  assert.deepEqual(parseLiveAction('Ali, kirbacla Ali Veli', '42', decoratedViewers),
+    { kind: 'whip', targetId: 'longer' }, 'the nickname after the command takes priority');
+  for (const command of ['kırbaç', 'kirbac', 'kırbaçla', 'kirbacla', 'kırbacla', 'kirbaçla', 'KIRBAÇLA', 'KİRBACLA']) {
+    for (const [nickname, targetId] of [
+      ['🔥Ali👑', 'emoji'], ['@kralali', 'emoji'], ['A[li].*', 'symbols'],
+      ['🦁👑', 'only-emoji'], ['Ayse', 'styled'], ['أحمد🌙', 'unicode'],
+      ['Анна🌸', 'cyrillic'], ['王小明🐉', 'cjk'], ['Ali Veli', 'longer'],
+    ]) {
+      assert.deepEqual(parseLiveAction(`${command} ${nickname}`, '42', decoratedViewers),
+        { kind: 'whip', targetId }, `${command} matches nickname ${nickname}`);
+    }
+    assert.deepEqual(parseLiveAction(command, '42', decoratedViewers),
+      { kind: 'whip', targetId: '42' }, `${command} without a nickname targets the commenter`);
+  }
+
+  const priorDateNow = Date.now;
+  const priorEventSource = globalThis.EventSource;
+  let stopPresence;
+  let now = priorDateNow();
+  const startedAt = now;
+  const sources = [];
+  class MockEventSource {
+    listeners = new Map();
+    constructor() { sources.push(this); }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    close() {}
+    emit(name, data) { this.listeners.get(name)?.({ data: JSON.stringify(data) }); }
+  }
+  try {
+    Date.now = () => now;
+    globalThis.EventSource = MockEventSource;
+    const presenceGame = new GameEngine();presenceGame.restartGame();
+    stopPresence = connectTikTokLive('naturreiki',
+      viewer => presenceGame.addLiveViewer(viewer.id, viewer.name, viewer.handle, viewer.lastSeen),
+      () => {}, () => {}, () => {}, () => {}, id => presenceGame.removeLiveViewer(id));
+    sources.at(-1).emit('ready', { roomId: '123456' });
+    for (const id of ['gone', 'active']) sources.at(-1).emit('viewer', { id, name: id, lastSeen: now });
+    for (const elapsed of [230000, 460000]) {
+      now = startedAt + elapsed;
+      sources.at(-1).emit('rotate', 'reconnecting');
+      await new Promise(resolve => setTimeout(resolve, 5));
+      sources.at(-1).emit('ready', { roomId: '123456' });
+      sources.at(-1).emit('viewer', { id: 'active', name: 'active', lastSeen: now });
+    }
+    assert.equal(sources.length, 3, 'the SSE connection rotates twice before inactivity expires');
+    now = startedAt + 480001;
+    presenceGame.pruneInactiveViewers();
+    presenceGame.update(2);
+    assert.deepEqual(presenceGame.zombies.zombies.map(z => z.viewerId), ['active'],
+      'departed viewers expire across rotations while recent activity keeps a viewer present');
+    presenceGame.removeLiveViewer('active');
+    presenceGame.addLiveViewer('active', 'active');
+    assert.equal(presenceGame.zombies.zombies.filter(z => z.viewerId === 'active').length, 1,
+      'returning during an exit does not leave a duplicate zombie');
+    presenceGame.syncLiveViewers([]);
+    presenceGame.update(2);
+    assert.equal(presenceGame.zombies.zombies.length, 0,
+      'a fresh empty snapshot removes viewers even without a leave event');
+    now = startedAt;
+    presenceGame.syncLiveViewers([{ id: 'stale', name: 'Stale', lastSeen: startedAt }]);
+    now += 240000;
+    presenceGame.syncLiveViewers([{ id: 'stale', name: 'Stale', lastSeen: startedAt }]);
+    presenceGame.restartGame();
+    now += 240001;
+    presenceGame.syncLiveViewers([{ id: 'stale', name: 'Stale', lastSeen: startedAt }]);
+    presenceGame.update(2);
+    assert.equal(presenceGame.zombies.zombies.length, 0,
+      'polling snapshots and restarting the scene do not refresh old activity timestamps');
+  } finally {
+    stopPresence?.();
+    Date.now = priorDateNow;
+    if (priorEventSource === undefined) delete globalThis.EventSource;
+    else globalThis.EventSource = priorEventSource;
+  }
+
+  const latestCommentGame = new GameEngine();latestCommentGame.restartGame();
+  latestCommentGame.addLiveViewer('first', 'İlk');
+  latestCommentGame.addLiveViewer('last', '🔥Ali👑', 'kralali');
+  latestCommentGame.receiveLiveChat('first', 'İlk', 'merhaba');
+  latestCommentGame.receiveLiveChat('last', '🔥Ali👑', 'selam');
+  latestCommentGame.setBurialScene(true);
+  latestCommentGame.update(1/60);
+  assert.equal(latestCommentGame.burialScene.target?.viewerId, 'last',
+    'manual burial starts with the latest commenter');
+  latestCommentGame.setBurialScene(false);
+  latestCommentGame.receiveLiveChat('first', 'İlk', 'göm 🔥Ali👑');
+  latestCommentGame.update(1/60);
+  assert.equal(latestCommentGame.burialScene.target?.viewerId, 'last',
+    'an explicit decorated nickname takes priority over the last commenter');
+  latestCommentGame.setBurialScene(false);
+  latestCommentGame.cancelLiveTasks();
+  latestCommentGame.receiveLiveChat('first', 'İlk', 'göm');
+  latestCommentGame.update(1/60);
+  assert.equal(latestCommentGame.burialScene.target?.viewerId, 'first',
+    'a burial command without a nickname targets its commenter');
+  const namedWhipGame = new GameEngine();namedWhipGame.restartGame();
+  namedWhipGame.addLiveViewer('first', 'İlk');
+  namedWhipGame.addLiveViewer('named', '🔥Ali👑', 'kralali');
+  for (const z of namedWhipGame.zombies.zombies) {
+    z.formation = undefined;z.crowdMotion = undefined;
+    z.x = 320;z.y = 550;z.walkCycle = 0;
+  }
+  namedWhipGame.receiveLiveChat('first', 'İlk', 'kirbacla 🔥Ali👑');
+  namedWhipGame.processLiveTasks();
+  namedWhipGame.update(1/60);
+  assert.equal(namedWhipGame.burialScene.target?.viewerId, 'named',
+    'a named whip command lassos its viewer even when sprites overlap');
+  let dragged = false, maxWhipHits = 0;
+  for (let frame = 0; frame < 60 * 45 && namedWhipGame.whipCaptureEnabled; frame++) {
+    namedWhipGame.update(1/60);
+    const target = namedWhipGame.zombies.zombies.find(z => z.viewerId === 'named');
+    dragged ||= !!target?.burialDragging && target.x > 400;
+    maxWhipHits = Math.max(maxWhipHits, namedWhipGame.burialScene.whipHits);
+    assert.equal(!!target?.buried, false, 'a whipped captive is never buried');
+  }
+  assert.ok(dragged, 'the selected viewer is dragged away before whipping');
+  assert.equal(maxWhipHits, 3, 'the captive receives three visible whip strikes');
+  assert.equal(namedWhipGame.whipCaptureEnabled, false, 'the hero returns after whipping');
+  assert.ok(namedWhipGame.zombies.zombies.every(z => !z.burialDragging && !z.burialFleeing),
+    'all viewers return to the dance ring after the capture');
+  namedWhipGame.receiveLiveChat('first', 'İlk', 'kirbacla');
+  namedWhipGame.update(1/60);
+  assert.equal(namedWhipGame.burialScene.target?.viewerId, 'first',
+    'a whip command without a nickname captures the sender');
+  namedWhipGame.cancelLiveTasks();
+  namedWhipGame.receiveLiveChat('named', '🔥Ali👑', 'merhaba');
+  namedWhipGame.update(2);
+  assert.equal(namedWhipGame.nextWhipTarget()?.viewerId, 'named',
+    'the normal whip scene targets the latest commenter');
+
+  const flowerGame = new GameEngine();flowerGame.restartGame();
+  flowerGame.addLiveViewer('flower-a', 'Ela');flowerGame.addLiveViewer('flower-b', 'Ali');
+  flowerGame.setFlowerScene(true);
+  assert.equal(captureControlSnapshot(flowerGame, 'DESERT', 'test').scene, 'FLOWERS');
+  assert.equal(parseControlSnapshot({scene:'FLOWERS'})?.scene, 'FLOWERS');
+  const flowerKinds = new Set(), flowerRecipients = new Set();
+  for (let frame = 0; frame < 60 * 20; frame++) {
+    flowerGame.update(1/60);
+    for (const flower of flowerGame.celebrationScene.flowers) {
+      flowerKinds.add(flower.kind);flowerRecipients.add(flower.target.viewerId);
+    }
+  }
+  assert.deepEqual([...flowerKinds].sort(), ['rose', 'tulip'], 'the hero throws both roses and tulips');
+  assert.equal(flowerRecipients.size, 2, 'flowers reach every present viewer');
+  assert.ok(flowerGame.celebrationScene.blooms.length > 0, 'received flowers decorate the ground');
+  assert.equal(flowerGame.danceCount, 0, 'flower throws do not whip the crowd');
+  assert.equal(soundEngine.attack, null, 'the whip is silent in the flower scene');
+  flowerGame.removeLiveViewer('flower-a');
+  flowerGame.update(2);
+  assert.ok(flowerGame.celebrationScene.flowers.every(f => f.target.viewerId !== 'flower-a'),
+    'flowers stop targeting a viewer who leaves');
+  applyControlSnapshot(flowerGame, parseControlSnapshot({scene:'MONEY_RAIN'}));
+  assert.equal(flowerGame.flowerSceneEnabled, false);
+  assert.equal(flowerGame.moneyRainSceneEnabled, true);
+  assert.equal(flowerGame.celebrationScene.flowers.length, 0, 'changing scenes clears airborne flowers');
+  assert.equal(captureControlSnapshot(flowerGame, 'DESERT', 'test').scene, 'MONEY_RAIN');
+  for (let frame = 0; frame < 20 * 120; frame++) flowerGame.update(1/20);
+  assert.ok(flowerGame.celebrationScene.money.some(p => p.kind === 'coin'));
+  assert.ok(flowerGame.celebrationScene.money.some(p => p.kind === 'dollar'));
+  assert.ok(flowerGame.celebrationScene.money.every(p => p.vy > 0), 'money falls from the sky');
+  assert.ok(flowerGame.celebrationScene.money.length <= 170, 'money rain stays bounded during long broadcasts');
+  assert.equal(soundEngine.attack, null, 'money rain does not whip the crowd');
+  flowerGame.restartGame();
+  assert.equal(flowerGame.moneyRainSceneEnabled, true, 'restart preserves the selected celebration');
+  for (const scene of ['WHIP', 'BOMB', 'BURIAL', 'HELL', 'TASBIH', 'CAMEL', 'PHARAOH', 'NOAH']) {
+    applyControlSnapshot(flowerGame, parseControlSnapshot({scene:'FLOWERS'}));
+    applyControlSnapshot(flowerGame, parseControlSnapshot({scene}));
+    assert.equal(flowerGame.celebrationScene.mode, null, `${scene} stops flower effects`);
+    assert.equal(captureControlSnapshot(flowerGame, 'DESERT', 'test').scene, scene);
+    applyControlSnapshot(flowerGame, parseControlSnapshot({scene:'MONEY_RAIN'}));
+    assert.equal(captureControlSnapshot(flowerGame, 'DESERT', 'test').scene, 'MONEY_RAIN',
+      `money rain can replace ${scene}`);
+  }
+  applyControlSnapshot(flowerGame, parseControlSnapshot({scene:'WHIP'}));
+  flowerGame.receiveLiveChat('flower-b', 'Ali', 'deveyebin @flower-b');
+  flowerGame.update(1/60);
+  assert.equal(flowerGame.camelSceneEnabled, true, 'deveyebin opens the camel scene');
+  assert.equal(flowerGame.upcomingCamelTarget?.viewerId, 'flower-b', 'the camel command keeps its selected viewer');
+
+  const speechWindow = globalThis.window;
+  const speechConstructor = globalThis.SpeechSynthesisUtterance;
+  const spoken = [];
+  let pauses = 0, resumes = 0;
+  const originalVolume = soundEngine.getVolume();
+  try {
+    globalThis.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    globalThis.window = { speechSynthesis: {
+      getVoices: () => [{name:'Turkish male', lang:'tr-TR'}],
+      speak: utterance => spoken.push(utterance), cancel() {},
+      pause() { pauses++; }, resume() { resumes++; },
+    } };
+    soundEngine.clearChatSpeech();soundEngine.setPaused(false);
+    soundEngine.queueChatSpeech('🔥Ela👑', 'Merhaba kahraman');
+    assert.equal(spoken[0].text, 'Ela diyor ki: Merhaba kahraman', 'chat speech reads the sender and message');
+    soundEngine.queueChatSpeech('Ali', 'kirbacla');
+    assert.equal(spoken.length, 1, 'chat messages never overlap');
+    spoken[0].onend();
+    assert.equal(spoken[1].text, 'Ali diyor ki: kirbacla', 'the next message follows in order');
+    soundEngine.setVolume(.4);
+    assert.equal(spoken[1].volume, .4, 'narration follows the game volume');
+    soundEngine.setPaused(true);
+    spoken[1].onend();soundEngine.queueChatSpeech('Ayşe', 'Selam');
+    assert.equal(spoken.length, 2, 'paused games do not start new narration');
+    soundEngine.setPaused(false);
+    assert.equal(spoken[2].text, 'Ayşe diyor ki: Selam');
+    assert.ok(pauses > 0 && resumes > 0, 'narration pauses and resumes with the game');
+    soundEngine.setMuted(true);
+    soundEngine.queueChatSpeech('Ela', 'sessiz');
+    assert.equal(spoken.length, 3, 'muting also silences message reading');
+    soundEngine.setMuted(false);
+  } finally {
+    soundEngine.clearChatSpeech();soundEngine.setVolume(originalVolume);
+    if (speechWindow === undefined) delete globalThis.window;else globalThis.window = speechWindow;
+    if (speechConstructor === undefined) delete globalThis.SpeechSynthesisUtterance;
+    else globalThis.SpeechSynthesisUtterance = speechConstructor;
+  }
   const game = new GameEngine();
   game.restartGame();
   assert.equal(game.zombies.zombies.length, 0, 'live mode starts without demo zombies');
@@ -341,7 +589,7 @@ try {
     'a missing track safely falls back to the original music');
   const previousImage=globalThis.Image;
   globalThis.Image=class { src=''; };
-  for(const map of ['ISTANBUL','IRAN','ISRAEL']) {
+  for(const map of ['ISTANBUL','IRAN','ISRAEL','HELL','HEAVEN']) {
     assert.equal(parseControlSnapshot({map})?.map,map,
       `${map} survives control synchronization`);
     camelGame.setWorldMap(map,`${map}.webp`);
@@ -419,7 +667,7 @@ try {
   assert.equal(noahGame.zombies.zombies.some(z=>z.stageBuilder),false,
     'temporary builder zombies leave with the ark scene');
   if(priorWindow===undefined)delete globalThis.window;else globalThis.window=priorWindow;
-  console.log('PASS TikTok events, named targets, camel, Pharaoh, ark construction and flood finale.');
+  console.log('PASS TikTok presence, Unicode commands, lasso whipping, camel targets, flowers, money rain, chat narration and existing scenes.');
 } finally {
   await rm(dir, { recursive: true, force: true });
   if (originalFlag === undefined) delete process.env.VITE_TIKTOK_ENABLED;

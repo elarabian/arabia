@@ -16,6 +16,9 @@ import { drawWorldMapMotion, type WorldMap } from './worldMaps';
 import { WhipType, Zombie, PlayerStats, GameSettings } from './types';
 import { featureFlags } from '../featureFlags';
 import { parseLiveAction, type LiveAction } from '../live/commands';
+import type { LiveViewer } from '../live/tiktok';
+import { VIEWER_INACTIVITY_MS } from '../live/presence.js';
+import { CelebrationScene } from './celebrationScene';
 
 const DANCER_COUNT = 20;
 
@@ -44,7 +47,8 @@ export class GameEngine {
   public bombSceneEnabled = false;
   public burialSceneEnabled = false;
   public hellSceneEnabled = false;
-  public get captureSceneEnabled() { return this.burialSceneEnabled || this.hellSceneEnabled; }
+  public whipCaptureEnabled = false;
+  public get captureSceneEnabled() { return this.burialSceneEnabled || this.hellSceneEnabled || this.whipCaptureEnabled; }
   public burialScene = new BurialScene();
   public bombSceneTime = 0;
   public bombExploded = false;
@@ -66,8 +70,13 @@ export class GameEngine {
   private activeTarget: Zombie | null = null;
   private liveViewers = new Map<string, string>();
   private liveHandles = new Map<string, string>();
+  private viewerLastSeen = new Map<string, number>();
+  private lastCommenterId: string | null = null;
   private viewerSupport = new Map<string, { likes: number; gifts: number }>();
   public tasbihMode = false;
+  public celebrationScene = new CelebrationScene();
+  public get flowerSceneEnabled() { return this.celebrationScene.mode === 'flowers'; }
+  public get moneyRainSceneEnabled() { return this.celebrationScene.mode === 'money'; }
   public camelSceneEnabled = false;
   public camelSceneTime = 0;
   public pharaohSceneEnabled = false;
@@ -260,6 +269,7 @@ export class GameEngine {
   }
 
   public syncViewerSupport(id: string, likes = 0, gifts = 0) {
+    if (!this.liveViewers.has(id)) return;
     const z = this.zombies.zombies.find(viewer => viewer.viewerId === id);
     if (!z) return;
     const support = this.viewerSupport.get(id) ?? { likes: 0, gifts: 0 };
@@ -273,6 +283,10 @@ export class GameEngine {
 
   private makeFavorite(z: Zombie) {
     z.favorite = true;
+    if (this.whipCaptureEnabled && this.burialScene.target === z) {
+      this.stopWhipCapture();
+      this.activeLiveTask = null;
+    }
     if (this.queuedTarget === z) { this.queuedTarget = null; this.queuedStrike = null; }
     if (this.activeTarget === z) this.activeTarget = null;
     if (this.burialScene.spareViewer(z)) {
@@ -282,6 +296,8 @@ export class GameEngine {
   }
 
   public setTasbihMode(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (enabled) this.setPharaohScene(false);
     if (this.tasbihMode === enabled) return;
@@ -304,6 +320,8 @@ export class GameEngine {
   }
 
   public setBombScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (enabled) this.setPharaohScene(false);
     if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
@@ -321,6 +339,8 @@ export class GameEngine {
   }
 
   public setBurialScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (enabled) this.setPharaohScene(false);
     if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
@@ -339,6 +359,8 @@ export class GameEngine {
   }
 
   public setHellScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (enabled) this.setPharaohScene(false);
     if (enabled) { this.camelSceneEnabled = false; this.pharaohSceneEnabled = false; }
@@ -357,6 +379,8 @@ export class GameEngine {
   }
 
   public setCamelScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (enabled) this.setPharaohScene(false);
     if (this.camelSceneEnabled === enabled) return;
@@ -383,6 +407,8 @@ export class GameEngine {
   }
 
   public setPharaohScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setNoahScene(false);
     if (this.pharaohSceneEnabled === enabled && !enabled) return;
     this.zombies.zombies = this.zombies.zombies.filter(z => !z.pharaohAudience);
@@ -423,6 +449,8 @@ export class GameEngine {
   }
 
   public setNoahScene(enabled: boolean) {
+    if (enabled) this.stopWhipCapture();
+    if (enabled) this.setCelebrationScene(null);
     if (enabled) this.setPharaohScene(false);
     if (!enabled && !this.noahSceneEnabled) return;
     if (!enabled) {
@@ -461,6 +489,37 @@ export class GameEngine {
     this.activeTarget = null;
     if (enabled) soundEngine.startNoahConstruction();
     else soundEngine.stopNoahConstruction();
+  }
+
+  public setFlowerScene(enabled: boolean) {
+    if (enabled || this.flowerSceneEnabled) this.setCelebrationScene(enabled ? 'flowers' : null);
+  }
+
+  public setMoneyRainScene(enabled: boolean) {
+    if (enabled || this.moneyRainSceneEnabled) this.setCelebrationScene(enabled ? 'money' : null);
+  }
+
+  private setCelebrationScene(mode: CelebrationScene['mode']) {
+    if (this.celebrationScene.mode === mode) return;
+    this.celebrationScene.reset(mode, this.width, this.height);
+    soundEngine.stopWhip();
+    this.queuedStrike = null;
+    this.queuedTarget = null;
+    this.activeTarget = null;
+    this.heroJump = 0;
+    this.handsRaised = 0;
+    this.bodyLean = 0;
+    if (!mode) return;
+    this.cancelLiveTasks();
+    this.setNoahScene(false);
+    this.setPharaohScene(false);
+    this.tasbihMode = false;
+    this.camelSceneEnabled = false;
+    this.bombSceneEnabled = false;
+    this.burialSceneEnabled = false;
+    this.hellSceneEnabled = false;
+    this.burialScene.reset(this.zombies.zombies);
+    this.resetBombScene();
   }
 
   private spawnNoahBuilders() {
@@ -522,6 +581,8 @@ export class GameEngine {
   }
 
   public restartGame() {
+    this.whipCaptureEnabled = false;
+    this.celebrationScene.reset(this.celebrationScene.mode, this.width, this.height);
     soundEngine.stopWhip();
     this.pendingSkill = null;
     this.danceCount = 0;
@@ -863,7 +924,7 @@ export class GameEngine {
     if (!this.currentChat && this.chatQueue.length) {
       this.currentChat = { ...this.chatQueue.shift()!, until: soundEngine.audioTime + 3.4 };
     }
-    if (!this.tasbihMode && !this.noahSceneEnabled && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)
+    if ((!this.celebrationScene.mode || this.liveTaskQueue.length > 0) && !this.tasbihMode && !this.noahSceneEnabled && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)
       && !(this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END)) this.processLiveTasks();
     if (this.liveWhipBoostTime > 0) {
       this.liveWhipBoostTime = Math.max(0, this.liveWhipBoostTime - dt);
@@ -872,6 +933,11 @@ export class GameEngine {
 
     // Advance the visible dance pose before aiming so collision and rendering agree.
     this.zombies.update(dt, this.playerX, this.groundY, this.atmosphere, () => {});
+    if (this.celebrationScene.mode) {
+      this.updateCelebrationScene(dt);
+      this.atmosphere.update(dt, this.width, this.height, this.settings.rainEffect, this.groundY);
+      return;
+    }
     if (this.noahSceneEnabled) {
       this.noahSceneTime += dt;
       this.noahHitPulse = Math.max(0, this.noahHitPulse - dt);
@@ -1061,11 +1127,40 @@ export class GameEngine {
     // The full dance circle is created on restart; no additional spawning.
   }
 
+  private updateCelebrationScene(dt: number) {
+    const scene = this.celebrationScene;
+    const t = scene.time;
+    const target = scene.target;
+    const angle = this.flowerSceneEnabled && target
+      ? Math.atan2(target.y - 50 - (this.groundY - 70), target.x - this.playerX) : Math.PI / 2;
+    this.heroVisualAngle = angle;
+    this.heroJump = Math.max(0, Math.sin(t * 6)) * (this.moneyRainSceneEnabled ? 6 : 2);
+    this.bodyLean = Math.sin(t * 2.5) * 3;
+    this.handsRaised = this.moneyRainSceneEnabled ? .85 + Math.sin(t * 5) * .12 : .25;
+    const shoulder = heroShoulder(this.playerX, this.groundY - this.heroJump, angle, this.bodyLean);
+    const reach = this.flowerSceneEnabled ? 28 + Math.sin(t / .78 * Math.PI * 2) * 18 : 16;
+    this.arm = solveArm(shoulder,
+      { x: shoulder.x + Math.cos(angle) * reach,
+        y: shoulder.y - 12 + Math.sin(angle) * reach - (this.moneyRainSceneEnabled ? 42 : 0) },
+      { x: shoulder.x + 24, y: shoulder.y - 18 }, HERO_SCALE);
+    scene.update(dt, this.width, this.height, this.arm.wrist, this.zombies.zombies);
+  }
+
   private updateBurialScene(dt: number) {
     if (featureFlags.tiktokEnabled && this.zombies.zombies.length === 0) return;
+    if (this.burialSceneEnabled && !this.burialScene.target && !this.burialScene.preferredViewerId) {
+      this.burialScene.preferredViewerId = this.lastCommenterId;
+    }
+    const previousWhipHits = this.burialScene.whipHits;
     this.burialScene.update(dt, this.playerX, this.groundY, this.width, this.height, this.isTikTokMode,
       this.zombies.zombies, this.atmosphere);
+    if (this.whipCaptureEnabled && this.burialScene.target && this.burialScene.whipHits > previousWhipHits) {
+      const target = this.burialScene.target;
+      this.handleZombieHit(target, 'torso', target.x, target.y - 48 * target.scale,
+        this.heroVisualAngle, true, true, 1600, this.whip.config.baseDamage);
+    }
     if (this.burialScene.needsReset) {
+      if (this.whipCaptureEnabled) { this.stopWhipCapture(); return; }
       this.resetBombScene();
       this.burialScene.reset(this.zombies.zombies);
       return;
@@ -1077,8 +1172,8 @@ export class GameEngine {
     const heroY = this.burialScene.heroY || this.groundY;
     const prepProgress = this.burialScene.prepDuration > 0
       ? Math.min(1, this.burialScene.time / this.burialScene.prepDuration) : 0;
-    const aimX = action >= this.burialScene.walkEnd ? this.burialScene.graveX : target?.x ?? this.burialScene.graveX;
-    const aimY = action >= this.burialScene.walkEnd ? this.burialScene.graveY : (target?.y ?? this.groundY) - 50;
+    const aimX = action >= this.burialScene.walkEnd && !this.whipCaptureEnabled ? this.burialScene.graveX : target?.x ?? this.burialScene.graveX;
+    const aimY = action >= this.burialScene.walkEnd && !this.whipCaptureEnabled ? this.burialScene.graveY : (target?.y ?? this.groundY) - 50;
     const travelAngle = Math.atan2(this.burialScene.graveY - this.groundY,
       this.burialScene.graveX - this.playerX);
     this.heroVisualAngle = singing ? Math.PI / 2 + prepProgress * Math.PI * 4
@@ -1089,10 +1184,12 @@ export class GameEngine {
     const digging = this.burialSceneEnabled && action >= this.burialScene.walkEnd && action < this.burialScene.buryEnd;
     const castingIntoPit = this.hellSceneEnabled && action >= this.burialScene.walkEnd
       && action < this.burialScene.digEnd;
+    const whipping = this.whipCaptureEnabled && action >= this.burialScene.walkEnd && action < this.burialScene.digEnd;
+    const lash = whipping ? Math.sin(((action - this.burialScene.walkEnd) % .85) / .85 * Math.PI * 2) : 0;
     const scoop = digging ? Math.sin((action - this.burialScene.walkEnd) * Math.PI * 2 / .48) : 0;
     const throwing = action >= .28 && action < 1.05;
     const throwProgress = throwing ? Math.min(1, (action - .28) / .77) : 0;
-    this.bodyLean = castingIntoPit ? 13 * Math.sin(Math.PI * (action - this.burialScene.walkEnd)
+    this.bodyLean = whipping ? Math.max(0, lash) * 9 : castingIntoPit ? 13 * Math.sin(Math.PI * (action - this.burialScene.walkEnd)
       / (this.burialScene.digEnd - this.burialScene.walkEnd))
       : digging ? Math.max(0, scoop) * 9
       : throwing ? Math.sin(throwProgress * Math.PI) * 7
@@ -1104,7 +1201,8 @@ export class GameEngine {
           : this.burialScene.walking && action < this.burialScene.walkEnd ? .18 : action < 1.05 ? .45 : 0;
     const shoulder = heroShoulder(heroX, heroY - this.heroJump,
       this.heroVisualAngle, this.bodyLean);
-    const wrist = castingIntoPit ? { x: shoulder.x + 60, y: shoulder.y - 48 }
+    const wrist = whipping ? { x: shoulder.x + 25 + lash * 32, y: shoulder.y - 18 - Math.max(0, -lash) * 42 }
+      : castingIntoPit ? { x: shoulder.x + 60, y: shoulder.y - 48 }
       : digging
       ? { x: shoulder.x - 30 + scoop * 14, y: shoulder.y + 13 + scoop * 28 }
       : throwing ? { x: shoulder.x + 20 + 52 * Math.sin(throwProgress * Math.PI),
@@ -1358,28 +1456,70 @@ export class GameEngine {
     this.waveZombiesSpawned = this.zombies.zombies.length;
   }
 
-  public addLiveViewer(id: string, name: string, handle?: string) {
+  public addLiveViewer(id: string, name: string, handle?: string, lastSeen = Date.now()) {
     if (!featureFlags.tiktokEnabled) return false;
     const cleanId = id.trim();
     const cleanName = name.trim();
     if (!cleanId || !cleanName) return false;
+    const now = Date.now();
+    const seenAt = Number.isFinite(lastSeen) ? Math.min(now, lastSeen) : now;
+    const latestSeenAt = Math.max(this.viewerLastSeen.get(cleanId) ?? 0, seenAt);
+    if (now - latestSeenAt >= VIEWER_INACTIVITY_MS) {
+      this.removeLiveViewer(cleanId);
+      return false;
+    }
+    this.viewerLastSeen.set(cleanId, latestSeenAt);
     if (handle) this.liveHandles.set(cleanId, handle);
     if (this.liveViewers.has(cleanId)) {
       const existing = this.zombies.zombies.find(z => z.viewerId === cleanId);
       if (existing && handle) existing.viewerHandle = handle;
       return false;
     }
+    // A viewer can return before their previous exit animation has finished.
+    this.zombies.zombies = this.zombies.zombies.filter(z => z.viewerId !== cleanId);
     this.liveViewers.set(cleanId, cleanName);
     this.spawnLiveViewer(cleanId, cleanName, handle);
     return true;
   }
 
+  public syncLiveViewers(viewers: readonly LiveViewer[]) {
+    const currentIds = new Set<string>();
+    let added = false;
+    for (const viewer of viewers) {
+      if (!viewer?.id || !viewer?.name) continue;
+      const id = viewer.id.trim();
+      currentIds.add(id);
+      added = this.addLiveViewer(id, viewer.name, viewer.handle,
+        viewer.lastSeen ?? this.viewerLastSeen.get(id) ?? Date.now()) || added;
+    }
+    // The snapshot is authoritative even if a leave event expired or was missed.
+    for (const id of this.liveViewers.keys()) {
+      if (!currentIds.has(id)) this.removeLiveViewer(id);
+    }
+    return added;
+  }
+
+  public pruneInactiveViewers(now = Date.now()) {
+    // Keep activity timestamps in the game, across SSE rotations and fallbacks.
+    for (const [id, seenAt] of this.viewerLastSeen) {
+      if (now - seenAt >= VIEWER_INACTIVITY_MS) this.removeLiveViewer(id);
+    }
+  }
+
   public removeLiveViewer(id: string) {
+    if (this.whipCaptureEnabled && (this.burialScene.target?.viewerId === id
+      || this.burialScene.preferredViewerId === id)) this.stopWhipCapture();
+    if (this.lastCommenterId === id) this.lastCommenterId = null;
     this.liveViewers.delete(id);
     this.liveHandles.delete(id);
+    this.viewerLastSeen.delete(id);
     this.viewerSupport.delete(id);
+    this.liveTaskQueue = this.liveTaskQueue.filter(task => task.targetId !== id);
+    if (this.activeLiveTask?.targetId === id) this.activeLiveTask = null;
     const z = this.zombies.zombies.find(viewer => viewer.viewerId === id);
     if (!z || z.crowdMotion?.kind === 'exit') return;
+    this.burialScene.spareViewer(z);
+    this.noahPassengers.delete(z.id);
     if (z.buried) {
       this.burialScene.releaseViewer(z);
       z.buried = false;
@@ -1403,8 +1543,12 @@ export class GameEngine {
   }
 
   public clearLiveViewers() {
+    this.stopWhipCapture();
+    soundEngine.clearChatSpeech();
+    this.lastCommenterId = null;
     this.liveViewers.clear();
     this.liveHandles.clear();
+    this.viewerLastSeen.clear();
     this.viewerSupport.clear();
     this.liveLikes = 0;
     this.liveWhipBoostTime = 0;
@@ -1425,7 +1569,37 @@ export class GameEngine {
     soundEngine.stopWhip();
   }
 
+  private startWhipCapture(id: string) {
+    this.setCelebrationScene(null);
+    this.setNoahScene(false);
+    this.setPharaohScene(false);
+    this.tasbihMode = false;
+    this.camelSceneEnabled = false;
+    this.bombSceneEnabled = false;
+    this.burialSceneEnabled = false;
+    this.hellSceneEnabled = false;
+    this.burialScene.reset(this.zombies.zombies);
+    this.burialScene.mode = 'whip';
+    this.burialScene.preferredViewerId = id;
+    this.whipCaptureEnabled = true;
+    soundEngine.stopWhip();
+    this.queuedStrike = null;
+    this.queuedTarget = null;
+    this.activeTarget = null;
+  }
+
+  private stopWhipCapture() {
+    if (!this.whipCaptureEnabled) return;
+    this.whipCaptureEnabled = false;
+    this.burialScene.reset(this.zombies.zombies);
+    this.burialScene.mode = 'burial';
+    this.zombies.zombies.forEach((z, index) => {
+      if (!z.buried && z.crowdMotion?.kind !== 'exit') this.placeDancer(z, index);
+    });
+  }
+
   public cancelLiveTasks() {
+    this.stopWhipCapture();
     this.liveTaskQueue = [];
     this.activeLiveTask = null;
   }
@@ -1433,6 +1607,8 @@ export class GameEngine {
   public receiveLiveChat(senderId: string, name: string, text: string) {
     const cleanText = text.trim();
     if (!cleanText) return;
+    this.lastCommenterId = senderId;
+    soundEngine.queueChatSpeech(name.trim() || senderId, cleanText);
     this.chatQueue.push({ name: name.trim() || senderId, text: cleanText.slice(0, 120) });
     if (this.chatQueue.length > 12) this.chatQueue.shift();
     const viewers = [...this.liveViewers].map(([id, viewerName]) =>
@@ -1472,8 +1648,8 @@ export class GameEngine {
     if (active) {
       const elapsed = soundEngine.audioTime - active.startedAt;
       const finished = active.kind === 'whip'
-        ? elapsed > 8 || (elapsed > .2 && !this.queuedStrike && !!soundEngine.attack
-          && soundEngine.audioTime >= soundEngine.attack.cycleEnd)
+        ? elapsed > .2 && !this.whipCaptureEnabled
+        : active.kind === 'camel' ? this.camelSceneTime >= 5.7
         : active.kind === 'bomb' ? this.bombSceneTime >= 7
           : this.burialScene.target === null && this.burialScene.actionTime >= this.burialScene.cycleEnd - .05;
       if (!finished) return;
@@ -1482,16 +1658,18 @@ export class GameEngine {
     while (this.liveTaskQueue.length) {
       const task = this.liveTaskQueue.shift()!;
       const zombie = task.targetId ? this.zombies.zombies.find(z => z.viewerId === task.targetId) : undefined;
-      if (task.kind !== 'bomb' && (!zombie || zombie.buried || zombie.favorite)) continue;
-      if (task.kind === 'bomb') {
+      if (task.kind !== 'bomb' && task.kind !== 'camel' && (!zombie || zombie.buried || zombie.favorite
+        || zombie.crowdMotion?.kind === 'exit')) continue;
+      if (task.kind === 'camel') {
+        this.setCamelScene(true);
+        if (zombie && !zombie.favorite && !zombie.buried && zombie.crowdMotion?.kind !== 'exit') {
+          this.upcomingCamelTarget = zombie;
+        }
+      } else if (task.kind === 'bomb') {
         if (this.bombSceneEnabled) this.setBombScene(false);
         this.setBombScene(true);
       } else if (task.kind === 'whip') {
-        if (this.hellSceneEnabled) this.setHellScene(false);
-        else if (this.burialSceneEnabled) this.setBurialScene(false);
-        else if (this.bombSceneEnabled) this.setBombScene(false);
-        const torso = this.zombies.getHitTargets(zombie!)[1];
-        this.snapAt(torso.x, torso.y);
+        this.startWhipCapture(zombie!.viewerId!);
       } else {
         if (task.kind === 'hell') {
           if (this.hellSceneEnabled) this.setHellScene(false);
@@ -1508,7 +1686,7 @@ export class GameEngine {
   }
 
   public snapAt(x: number, y: number, power = 1.25) {
-    if (this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode
+    if (this.celebrationScene.mode || this.bombSceneEnabled || this.captureSceneEnabled || this.tasbihMode
       || (this.noahSceneEnabled && this.noahFloodTime > 0)
       || (this.camelSceneEnabled && this.camelSceneTime < 5.7)
       || (this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END) || this.isGameOver) return false;
@@ -1533,6 +1711,10 @@ export class GameEngine {
       && z.crowdMotion?.kind !== 'exit' && z.crowdMotion?.kind !== 'enter' && !z.burialDragging);
     const eligible = crowd.filter(z => z.lastWhippedAt === undefined
       || soundEngine.audioTime - z.lastWhippedAt >= 1 + Math.min(14, (z.likes ?? 0) / 7));
+    if (featureFlags.tiktokEnabled && this.lastCommenterId && !this.camelSceneEnabled
+      && !this.pharaohSceneEnabled && !this.noahSceneEnabled) {
+      return eligible.find(z => z.viewerId === this.lastCommenterId) ?? null;
+    }
     if (this.camelSceneEnabled) {
       if (this.upcomingCamelTarget && eligible.includes(this.upcomingCamelTarget)) return this.upcomingCamelTarget;
       const alternatives = eligible.filter(z => z.id !== this.lastCamelTargetId);
@@ -1701,6 +1883,7 @@ export class GameEngine {
         : pharaohIntro ? this.pharaohSceneTime < 2.5 ? 0 : Math.sin(this.pharaohSceneTime * (this.pharaohSceneTime < 7.8 ? 8 : 15)) * 10
         : camelIntro ? Math.sin(this.camelSceneTime * 16) * 9 : this.captureSceneEnabled ? burialStep : this.bombSceneEnabled ? this.bombDanceStarted ? Math.sin((this.bombSceneTime - 7) * 9) * 8
         : Math.sin(this.bombSceneTime * 20) * (this.bombSceneTime < 2.58 || (this.bombSceneTime >= 5 && this.bombSceneTime < 7) ? 15 : 0)
+        : this.celebrationScene.mode ? Math.sin(this.celebrationScene.time * 6) * 5
         : this.isRapidWhipActive ? this.rapidDanceStep : Math.sin(this.turning.stepPhase)*3*turnStrength,
       this.bodyLean,this.handsRaised,this.bombSceneEnabled ? this.bombHeroScale : HERO_SCALE,
       noahBuilding && this.noahHeroWalking ? Math.sin(this.noahSceneTime * 15) * .6
@@ -1932,11 +2115,12 @@ export class GameEngine {
       ctx.fillStyle = 'rgba(145, 56, 14, .08)';
       ctx.fillRect(0, 0, this.width, this.height);
     }
+    this.celebrationScene.drawSky(ctx, this.width, this.height);
 
     // Clip gameplay to the broadcast action zone, away from platform controls.
     ctx.save();
     if (this.isTikTokMode) {
-      const clipTop = this.bombSceneEnabled ? 0 : this.height * .24;
+      const clipTop = this.bombSceneEnabled || this.moneyRainSceneEnabled ? 0 : this.height * .24;
       ctx.beginPath();
       ctx.rect(0, clipTop, this.width,
         this.height * (1 - BROADCAST.bottom) - clipTop + 12);
@@ -1947,6 +2131,7 @@ export class GameEngine {
 
     // 2. Draw Severed Limbs on Ground
     this.atmosphere.drawSeveredLimbs(ctx);
+    this.celebrationScene.drawGround(ctx);
     if (this.noahSceneEnabled) {
       drawArk(ctx, this.width, this.groundY, this.noahBuildProgress,
         this.noahFloodTime, this.noahHitPulse, this.noahArkImage);
@@ -2002,9 +2187,10 @@ export class GameEngine {
     }
 
     // 5. Draw Whip
+    this.celebrationScene.drawForeground(ctx, this.arm.wrist);
     if (this.captureSceneEnabled) this.burialScene.drawForeground(ctx, this.arm.wrist.x, this.arm.wrist.y);
     else if (this.bombSceneEnabled) this.drawBombBlast(ctx);
-    else if (!this.tasbihMode && !(this.noahSceneEnabled && this.noahFloodTime > 0 && this.noahFloodTime <= 3.2)
+    else if (!this.celebrationScene.mode && !this.tasbihMode && !(this.noahSceneEnabled && this.noahFloodTime > 0 && this.noahFloodTime <= 3.2)
       && !(this.camelSceneEnabled && this.camelSceneTime < 5.7)
       && !(this.pharaohSceneEnabled && this.pharaohSceneTime < PHARAOH_INTRO_END)) {
       this.whip.draw(ctx, time);

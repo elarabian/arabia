@@ -4,6 +4,7 @@ export interface LiveViewer {
   handle?: string;
   likes?: number;
   gifts?: number;
+  lastSeen?: number;
 }
 
 export interface LiveChat extends LiveViewer { text: string }

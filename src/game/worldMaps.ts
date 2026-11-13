@@ -1,4 +1,4 @@
-export type WorldMap = 'DESERT' | 'GRAVEYARD' | 'ISTANBUL' | 'IRAN' | 'ISRAEL';
+export type WorldMap = 'DESERT' | 'GRAVEYARD' | 'ISTANBUL' | 'IRAN' | 'ISRAEL' | 'HELL' | 'HEAVEN';
 
 export const WORLD_MAPS: { id: WorldMap; label: string; icon: string }[] = [
   { id: 'DESERT', label: 'Arap Çölü', icon: '🏜️' },
@@ -6,6 +6,8 @@ export const WORLD_MAPS: { id: WorldMap; label: string; icon: string }[] = [
   { id: 'ISTANBUL', label: 'İstanbul Boğazı', icon: '🌉' },
   { id: 'IRAN', label: 'İran', icon: '🏔️' },
   { id: 'ISRAEL', label: 'İsrail', icon: '🌊' },
+  { id: 'HELL', label: 'Cehennem', icon: '🔥' },
+  { id: 'HEAVEN', label: 'Cennet', icon: '🌸' },
 ];
 
 export function isWorldMap(value: unknown): value is WorldMap {
@@ -70,6 +72,57 @@ export function drawWorldMapMotion(ctx: CanvasRenderingContext2D, map: WorldMap,
         ctx.fillStyle = `rgba(245,111,155,${.15 + .1 * Math.sin(time * 2 + i) ** 2})`;
         ctx.beginPath(); ctx.ellipse(x, y, 2.5, 1.5, time + i, 0, Math.PI * 2); ctx.fill();
       }
+    }
+  } else if (map === 'HELL') {
+    // Flame tongues stay at the edges; the middle remains readable for viewers.
+    for (const side of [-1, 1]) for (let i = 0; i < 8; i++) {
+      const x = side < 0 ? i * 9 - 15 : width - i * 9 + 15;
+      const y = groundY + 58 + Math.sin(i * 2.1) * 36;
+      const sway = Math.sin(time * 3.4 + i * 1.7 + side) * 10;
+      const height = 38 + Math.sin(time * 4 + i) * 13 + i % 3 * 17;
+      const firelight = ctx.createRadialGradient(x, y - height * .3, 2,
+        x, y - height * .3, height * .8);
+      firelight.addColorStop(0, 'rgba(255,149,35,.18)');
+      firelight.addColorStop(.5, 'rgba(239,54,16,.09)');
+      firelight.addColorStop(1, 'rgba(239,54,16,0)');
+      ctx.fillStyle = firelight;
+      ctx.beginPath();ctx.moveTo(x - 14, y);
+      ctx.bezierCurveTo(x - 23, y - height * .35, x + sway - 6, y - height * .7, x + sway, y - height);
+      ctx.bezierCurveTo(x + sway + 8, y - height * .55, x + 19, y - height * .3, x + 14, y);
+      ctx.closePath();ctx.fill();
+    }
+    for (let i = 0; i < 34; i++) {
+      const progress = (time * (.11 + i % 4 * .018) + i * .137) % 1;
+      const x = (i * 67.3 % width) + Math.sin(time * 1.3 + i) * 13;
+      const y = groundY + 110 - progress * 430;
+      ctx.fillStyle = `rgba(255,${140 + i % 3 * 35},65,${Math.sin(progress * Math.PI) * .65})`;
+      ctx.beginPath();ctx.ellipse(x, y, 1.2 + i % 2, 2.2 + i % 3, .35, 0, Math.PI * 2);ctx.fill();
+    }
+    if (pulse > 0) {
+      ctx.globalAlpha = pulse * .45;
+      ctx.strokeStyle = '#ff7b29';ctx.lineWidth = 2;
+      ctx.beginPath();ctx.ellipse(impactX, groundY + 2, 18 + (1 - pulse) * 90,
+        4 + (1 - pulse) * 17, 0, 0, Math.PI * 2);ctx.stroke();
+    }
+  } else if (map === 'HEAVEN') {
+    for (let i = 0; i < 24; i++) {
+      const x = ((i * 71 + time * (8 + i % 3 * 3)) % (width + 40)) - 20;
+      const y = groundY - 260 + ((i * 47 + time * (7 + i % 4)) % 350);
+      ctx.fillStyle = `rgba(255,${190 + i % 3 * 20},${205 + i % 2 * 30},${.35 + Math.sin(time + i) ** 2 * .25})`;
+      ctx.beginPath();ctx.ellipse(x, y, 3.5, 1.7, time * .7 + i, 0, Math.PI * 2);ctx.fill();
+    }
+    for (let i = 0; i < 14; i++) {
+      const x = (i * 83.7) % width;
+      const y = groundY - 205 + Math.sin(time * .6 + i) * 25 + i % 4 * 65;
+      const sparkle = Math.sin(time * 1.5 + i * 2.3) ** 6;
+      ctx.strokeStyle = `rgba(255,244,179,${sparkle * .65})`;ctx.lineWidth = 1;
+      ctx.beginPath();ctx.moveTo(x - 3, y);ctx.lineTo(x + 3, y);
+      ctx.moveTo(x, y - 4);ctx.lineTo(x, y + 4);ctx.stroke();
+    }
+    if (pulse > 0) {
+      ctx.globalAlpha = pulse * .45;ctx.strokeStyle = '#fff3b0';ctx.lineWidth = 2;
+      ctx.beginPath();ctx.ellipse(impactX, groundY + 2, 15 + (1 - pulse) * 95,
+        3 + (1 - pulse) * 14, 0, 0, Math.PI * 2);ctx.stroke();
     }
   } else if (map === 'IRAN') {
     for (let i = 0; i < 18; i++) {

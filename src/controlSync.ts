@@ -6,7 +6,7 @@ import { isWorldMap, type WorldMap } from './game/worldMaps';
 export const CONTROL_STORAGE_KEY = 'arabia.control.v1';
 export const CONTROL_CHANNEL = 'arabia.control.v1';
 
-export type ControlScene = 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL' | 'PHARAOH' | 'NOAH';
+export type ControlScene = 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL' | 'PHARAOH' | 'NOAH' | 'FLOWERS' | 'MONEY_RAIN';
 export type ControlMap = WorldMap;
 
 export interface ControlSnapshot {
@@ -32,7 +32,7 @@ export function parseControlSnapshot(value: unknown): ControlSnapshot | null {
   const data = value as Partial<ControlSnapshot>;
   return {
       map: isWorldMap(data.map) ? data.map : 'DESERT',
-      scene: data.scene === 'BOMB' || data.scene === 'BURIAL' || data.scene === 'HELL' || data.scene === 'TASBIH' || data.scene === 'CAMEL' || data.scene === 'PHARAOH' || data.scene === 'NOAH'
+      scene: data.scene === 'BOMB' || data.scene === 'BURIAL' || data.scene === 'HELL' || data.scene === 'TASBIH' || data.scene === 'CAMEL' || data.scene === 'PHARAOH' || data.scene === 'NOAH' || data.scene === 'FLOWERS' || data.scene === 'MONEY_RAIN'
         ? data.scene : 'WHIP',
       username: typeof data.username === 'string' ? data.username.trim().replace(/^@/, '') : '',
       rapidWhip: data.rapidWhip === true,
@@ -61,7 +61,8 @@ export function captureControlSnapshot(
 ): ControlSnapshot {
   return {
     map,
-    scene: engine.noahSceneEnabled ? 'NOAH' : engine.pharaohSceneEnabled ? 'PHARAOH' : engine.camelSceneEnabled ? 'CAMEL' : engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
+    scene: engine.flowerSceneEnabled ? 'FLOWERS' : engine.moneyRainSceneEnabled ? 'MONEY_RAIN'
+      : engine.noahSceneEnabled ? 'NOAH' : engine.pharaohSceneEnabled ? 'PHARAOH' : engine.camelSceneEnabled ? 'CAMEL' : engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
       : engine.bombSceneEnabled ? 'BOMB' : 'WHIP',
     username,
     rapidWhip: engine.rapidWhip,
@@ -76,17 +77,22 @@ export function captureControlSnapshot(
 }
 
 export function applyControlSnapshot(engine: GameEngine, snapshot: ControlSnapshot): void {
-  const currentScene = engine.noahSceneEnabled ? 'NOAH' : engine.pharaohSceneEnabled ? 'PHARAOH' : engine.camelSceneEnabled ? 'CAMEL' : engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
+  const currentScene = engine.flowerSceneEnabled ? 'FLOWERS' : engine.moneyRainSceneEnabled ? 'MONEY_RAIN'
+    : engine.noahSceneEnabled ? 'NOAH' : engine.pharaohSceneEnabled ? 'PHARAOH' : engine.camelSceneEnabled ? 'CAMEL' : engine.tasbihMode ? 'TASBIH' : engine.hellSceneEnabled ? 'HELL' : engine.burialSceneEnabled ? 'BURIAL'
     : engine.bombSceneEnabled ? 'BOMB' : 'WHIP';
   if (currentScene !== snapshot.scene) {
     engine.cancelLiveTasks();
     engine.setTasbihMode(snapshot.scene === 'TASBIH');
-    if (snapshot.scene === 'NOAH') engine.setNoahScene(true);
+    if (snapshot.scene === 'FLOWERS') engine.setFlowerScene(true);
+    else if (snapshot.scene === 'MONEY_RAIN') engine.setMoneyRainScene(true);
+    else if (snapshot.scene === 'NOAH') engine.setNoahScene(true);
     else if (snapshot.scene === 'PHARAOH') engine.setPharaohScene(true);
     else if (snapshot.scene === 'CAMEL') engine.setCamelScene(true);
     else if (snapshot.scene === 'BOMB') engine.setBombScene(true);
     else if (snapshot.scene === 'BURIAL') engine.setBurialScene(true);
     else if (snapshot.scene === 'HELL') engine.setHellScene(true);
+    else if (engine.flowerSceneEnabled) engine.setFlowerScene(false);
+    else if (engine.moneyRainSceneEnabled) engine.setMoneyRainScene(false);
     else if (engine.noahSceneEnabled) engine.setNoahScene(false);
     else if (engine.pharaohSceneEnabled) engine.setPharaohScene(false);
     else if (engine.camelSceneEnabled) engine.setCamelScene(false);

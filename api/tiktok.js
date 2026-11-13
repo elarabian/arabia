@@ -1,3 +1,5 @@
+import { VIEWER_INACTIVITY_MS } from '../src/live/presence.js';
+
 // A bounded SSE bridge: the Node-only connector stays on the server while the
 // browser reconnects before a Vercel Function reaches its duration limit.
 export function createTikTokHandler(loadConnector = () => import(/* @vite-ignore */ 'tiktok-live-connector')) {
@@ -125,8 +127,8 @@ return async function handler(request, response) {
         const record = saved?.result ? JSON.parse(saved.result) : null;
         if (record?.audience?.username === username && Date.now() - record.audienceAt < 1800000) {
           for (const viewer of record.audience.viewers || []) {
-            if (viewer?.id && viewer?.name && Date.now() - (viewer.lastSeen || record.audienceAt) < 480000) {
-              audienceViewers.set(viewer.id, viewer);
+            if (viewer?.id && viewer?.name && Date.now() - (viewer.lastSeen || record.audienceAt) < VIEWER_INACTIVITY_MS) {
+              audienceViewers.set(viewer.id, { ...viewer, lastSeen: viewer.lastSeen || record.audienceAt });
               viewerLastSeen.set(viewer.id, viewer.lastSeen || record.audienceAt);
             }
           }
@@ -140,7 +142,6 @@ return async function handler(request, response) {
       fetchRoomInfoOnConnect: false,
       ...(process.env.EULER_SIGN_API_KEY ? { signApiKey: process.env.EULER_SIGN_API_KEY } : {}),
     });
-    const seenViewers = new Set(audienceViewers.keys());
     const viewerData = event => {
       const user = event?.user ?? event;
       return {
@@ -152,18 +153,15 @@ return async function handler(request, response) {
     const emitViewer = event => {
       const { id, name, handle } = viewerData(event);
       if (!id || !name) return;
-      viewerLastSeen.set(id, Date.now());
-      if (audienceViewers.has(id)) audienceViewers.set(id,
-        { ...audienceViewers.get(id), id, name, handle, lastSeen: Date.now() });
-      if (seenViewers.has(id)) return;
-      seenViewers.add(id);
-      send('viewer', { id, name, handle, lastSeen: Date.now() });
+      const lastSeen = Date.now();
+      viewerLastSeen.set(id, lastSeen);
+      // Existing viewers also need activity updates in direct browser sources.
+      send('viewer', { id, name, handle, lastSeen });
     };
     departureTimer = setInterval(() => {
       for (const [id, seenAt] of viewerLastSeen) {
-        if (Date.now() - seenAt < 480000) continue;
+        if (Date.now() - seenAt < VIEWER_INACTIVITY_MS) continue;
         viewerLastSeen.delete(id);
-        seenViewers.delete(id);
         send('leave', { id });
       }
     }, 30000);

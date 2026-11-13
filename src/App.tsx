@@ -8,9 +8,9 @@ import { soundEngine } from './game/audio';
 import { featureFlags } from './featureFlags';
 import { connectTikTokLive, type LiveChat, type LiveGift, type LiveStatus, type LiveViewer } from './live/tiktok';
 import { CONTROL_CHANNEL, CONTROL_STORAGE_KEY, applyControlSnapshot,
-  captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot } from './controlSync';
+  captureControlSnapshot, parseControlSnapshot, readControlSnapshot, type ControlSnapshot, type ControlScene } from './controlSync';
 import { WORLD_MAPS, isWorldMap, type WorldMap } from './game/worldMaps';
-import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain, Crown, Ship } from 'lucide-react';
+import { Play, RotateCcw, Sparkles, Volume2, Skull, Zap, Bomb, Shovel, Flame, CircleDot, Mountain, Crown, Ship, Flower2, Coins } from 'lucide-react';
 
 // Preloaded generated image assets
 import saharaUrl from './assets/images/sahara-sunny.png';
@@ -26,11 +26,14 @@ import noahFloodUrl from './assets/images/noah-flood.webp';
 import istanbulUrl from './assets/images/istanbul-bosphorus.webp';
 import iranUrl from './assets/images/iran-tehran.webp';
 import israelUrl from './assets/images/israel-coast.webp';
+import hellMapUrl from './assets/images/hell-battlefield.webp';
+import heavenMapUrl from './assets/images/heaven-garden.webp';
 export const ARABIAN_DESERT_BG_URL = saharaUrl;
 export const GRAVEYARD_BG_URL = graveyardUrl;
 const MAP_BG_URLS: Record<WorldMap, string> = {
   DESERT: saharaUrl, GRAVEYARD: graveyardUrl,
   ISTANBUL: istanbulUrl, IRAN: iranUrl, ISRAEL: israelUrl,
+  HELL: hellMapUrl, HEAVEN: heavenMapUrl,
 };
 const CREST_URL = crestUrl;
 const DEFAULT_TIKTOK_USERNAME = 'ersanyakit';
@@ -122,6 +125,8 @@ export default function App() {
       else if (scene === 'CAMEL') engineRef.current.setCamelScene(true);
       else if (scene === 'PHARAOH') engineRef.current.setPharaohScene(true);
       else if (scene === 'NOAH') engineRef.current.setNoahScene(true);
+      else if (scene === 'FLOWERS') engineRef.current.setFlowerScene(true);
+      else if (scene === 'MONEY_RAIN') engineRef.current.setMoneyRainScene(true);
       else if (scene === 'TASBIH') engineRef.current.setTasbihMode(true);
     }
   }
@@ -246,12 +251,7 @@ export default function App() {
     appliedAudienceRef.current = { username: tiktokUsername.toLowerCase(), updatedAt: updatedAt! };
     if (audience.status) setLiveStatus(audience.status);
     if (typeof audience.message === 'string') setLiveMessage(audience.message);
-    let added = false;
-    for (const viewer of Array.isArray(audience.viewers) ? audience.viewers : []) {
-      if (viewer?.id && viewer?.name) {
-        added = engine.addLiveViewer(viewer.id, viewer.name, viewer.handle) || added;
-      }
-    }
+    let added = Array.isArray(audience.viewers) ? engine.syncLiveViewers(audience.viewers) : false;
     for (const event of Array.isArray(audience.events) ? audience.events : []) {
       if (!event?.id || processedAudienceEventsRef.current.has(event.id)) continue;
       processedAudienceEventsRef.current.add(event.id);
@@ -264,12 +264,15 @@ export default function App() {
         engine.receiveLiveChat(event.chat.id, event.chat.name, event.chat.text);
       } else if (event.kind === 'gift' && event.gift?.id) {
         engine.receiveLiveGift(event.gift.id, event.gift.name, event.gift.count);
-      } else if (event.kind === 'leave' && event.viewerId) {
+      } else if (event.kind === 'leave' && event.viewerId && !Array.isArray(audience.viewers)) {
         engine.removeLiveViewer(event.viewerId);
       }
     }
-    for (const viewer of Array.isArray(audience.viewers) ? audience.viewers : []) {
-      if (viewer?.id) engine.syncViewerSupport(viewer.id, viewer.likes, viewer.gifts);
+    if (Array.isArray(audience.viewers)) {
+      added = engine.syncLiveViewers(audience.viewers) || added;
+      for (const viewer of audience.viewers) {
+        if (viewer?.id) engine.syncViewerSupport(viewer.id, viewer.likes, viewer.gifts);
+      }
     }
     if (processedAudienceEventsRef.current.size > 500) {
       for (const id of processedAudienceEventsRef.current) {
@@ -408,6 +411,12 @@ export default function App() {
 
   useEffect(() => {
     if (!featureFlags.tiktokEnabled) return;
+    const timer = window.setInterval(() => engine.pruneInactiveViewers(), 1000);
+    return () => clearInterval(timer);
+  }, [engine]);
+
+  useEffect(() => {
+    if (!featureFlags.tiktokEnabled) return;
     const bridgeSource = controlMode && !isLocalControl;
     const directSource = obsMode && (isLocalControl || (fallbackReady && !audienceBridgeActive));
     if (!bridgeSource && !directSource) return;
@@ -420,7 +429,7 @@ export default function App() {
       tiktokUsername,
       viewer => {
         if (!bridgeSource) {
-          if (engine.addLiveViewer(viewer.id, viewer.name, viewer.handle)) setTick(t => t + 1);
+          if (engine.addLiveViewer(viewer.id, viewer.name, viewer.handle, viewer.lastSeen)) setTick(t => t + 1);
           engine.syncViewerSupport(viewer.id, viewer.likes, viewer.gifts);
         }
       },
@@ -517,15 +526,19 @@ export default function App() {
     publishControl({ rapidWhipSpeed: engine.rapidWhipSpeed });
   };
 
-  const changeScene = (scene: 'WHIP' | 'BOMB' | 'BURIAL' | 'HELL' | 'TASBIH' | 'CAMEL' | 'PHARAOH' | 'NOAH') => {
+  const changeScene = (scene: ControlScene) => {
     engine.cancelLiveTasks();
     engine.setTasbihMode(scene === 'TASBIH');
-    if (scene === 'NOAH') engine.setNoahScene(true);
+    if (scene === 'FLOWERS') engine.setFlowerScene(true);
+    else if (scene === 'MONEY_RAIN') engine.setMoneyRainScene(true);
+    else if (scene === 'NOAH') engine.setNoahScene(true);
     else if (scene === 'PHARAOH') engine.setPharaohScene(true);
     else if (scene === 'CAMEL') engine.setCamelScene(true);
     else if (scene === 'BOMB') engine.setBombScene(true);
     else if (scene === 'BURIAL') engine.setBurialScene(true);
     else if (scene === 'HELL') engine.setHellScene(true);
+    else if (engine.flowerSceneEnabled) engine.setFlowerScene(false);
+    else if (engine.moneyRainSceneEnabled) engine.setMoneyRainScene(false);
     else if (engine.noahSceneEnabled) engine.setNoahScene(false);
     else if (engine.pharaohSceneEnabled) engine.setPharaohScene(false);
     else if (engine.camelSceneEnabled) engine.setCamelScene(false);
@@ -793,9 +806,9 @@ export default function App() {
             <button
               type="button"
               aria-label="Kırbaç sahnesi"
-              aria-pressed={!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled}
+              aria-pressed={!engine.celebrationScene.mode && !engine.bombSceneEnabled && !engine.burialSceneEnabled && !engine.hellSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled}
               onClick={() => changeScene('WHIP')}
-              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.bombSceneEnabled && !engine.captureSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled
+              className={`flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${!engine.celebrationScene.mode && !engine.bombSceneEnabled && !engine.burialSceneEnabled && !engine.hellSceneEnabled && !engine.tasbihMode && !engine.camelSceneEnabled && !engine.pharaohSceneEnabled && !engine.noahSceneEnabled
                 ? 'border-amber-500 bg-amber-600 text-stone-950'
                 : 'border-stone-700 bg-stone-900 text-stone-300'}`}
             >
@@ -861,8 +874,30 @@ export default function App() {
               <Ship className="h-3.5 w-3.5 shrink-0" />
               <span className="rapid-whip-copy">Nuh'un Gemisi</span>
             </button>
+            <button type="button" aria-label="Gül ve Lale sahnesi" aria-pressed={engine.flowerSceneEnabled}
+              onClick={() => changeScene('FLOWERS')}
+              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.flowerSceneEnabled
+                ? 'border-pink-300 bg-pink-900 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Flower2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Gül ve Lale</span>
+            </button>
+            <button type="button" aria-label="Altın ve Dolar Yağmuru sahnesi" aria-pressed={engine.moneyRainSceneEnabled}
+              onClick={() => changeScene('MONEY_RAIN')}
+              className={`col-span-2 flex items-center justify-center gap-1 rounded-md border px-1 py-2 text-[11px] font-semibold cursor-pointer ${engine.moneyRainSceneEnabled
+                ? 'border-yellow-300 bg-yellow-800 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
+              <Coins className="h-3.5 w-3.5 shrink-0" />
+              <span className="rapid-whip-copy">Altın ve Dolar</span>
+            </button>
           </div>
-          {engine.noahSceneEnabled ? (
+          {engine.flowerSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-pink-300">
+              <Flower2 className="h-4 w-4" /><span className="text-xs font-bold">Gül ve Lale Sahnesi</span>
+            </div>
+          ) : engine.moneyRainSceneEnabled ? (
+            <div className="rapid-whip-copy flex items-center gap-2 text-yellow-300">
+              <Coins className="h-4 w-4" /><span className="text-xs font-bold">Altın ve Dolar Yağmuru</span>
+            </div>
+          ) : engine.noahSceneEnabled ? (
             <div className="rapid-whip-copy flex items-center gap-2 text-sky-300">
               <Ship className="h-4 w-4" /><span className="text-xs font-bold">Nuh'un Gemisi · {Math.round(engine.noahBuildProgress * 100)}%</span>
             </div>

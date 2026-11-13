@@ -266,7 +266,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   }
                 }}
                 className="w-full rounded-md border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
-                {[1, 2, 3, 4, 5].map(number => {
+                {[1, 2, 3, 4, 5, 6].map(number => {
                   const id = number === 1 ? 'background' : `background_${number}`;
                   const track = backgroundTracks.find(item => item.id === id);
                   return <option key={id} value={id} disabled={!track}>

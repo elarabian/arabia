@@ -1,0 +1,15 @@
+{
+  "tool": "Built-in image_gen",
+  "assets": [
+    {
+      "file": "hell-battlefield.webp",
+      "map": "HELL",
+      "prompt": "Use case: stylized-concept. Asset type: finished portrait 9:16 background plate for a 2.5D fantasy arena game, environment only. Primary request: a frightening burning crimson hell battlefield. Scene: immense jagged obsidian cliffs and ruined gothic spires silhouetted through deep red smoke, distant rivers of molten lava, infernal orange fire raging along the sides, drifting embers, black volcanic rock cracked with subtle glowing scarlet veins. Lighting: intense ominous red-orange volcanic glow with deep burgundy shadows and dramatic smoky depth, cinematic high-quality stylized 3D game environment with painterly realism. Composition: wide view within a vertical frame, distant horizon about 60 percent down the source image; the lower 35 percent is a broad relatively flat open dark-red basalt arena floor for game characters, with clearly legible medium-dark ground and restrained surface details; keep the central gameplay area open and unobstructed, tall burning cliffs mostly along the outer edges. Continuous floor extends to every bottom edge for camera movement. No foreground characters, no creatures, no people, no UI, no writing, no letters, no logos, no borders, no watermark. Render an immersive polished finished background asset."
+    },
+    {
+      "file": "heaven-garden.webp",
+      "map": "HEAVEN",
+      "prompt": "Use case: stylized-concept. Asset type: finished portrait 9:16 background plate for a 2.5D fantasy arena game, environment only. Primary request: a beautiful serene luminous paradise garden, a heaven battlefield map. Scene: lush emerald gardens with flowering trees and soft white-pink blossoms, distant ivory marble arches opening into glowing clouds, elegant terraced waterfalls and turquoise pools at the outer edges, soft sunbeams through a pale blue and golden sky. Lighting: warm heavenly golden light, ethereal atmospheric depth, tranquil hopeful mood; high-quality stylized 3D fantasy game environment with painterly realism. Composition: wide view within a vertical frame, distant horizon around 60 percent down the source image; lower 35 percent is a broad flat open pale warm-ivory stone and soft sage garden clearing suitable for game characters, with restrained textures and low-detail central arena; flowering plants, water and architecture frame the outer edges while the middle remains spacious and readable. Continuous walkable foreground reaches every bottom edge for camera movement. No foreground characters, no angels, no people, no creatures, no religious figures, no UI, no writing, no letters, no logos, no border, no watermark. Render an immersive polished finished background asset."
+    }
+  ]
+}
