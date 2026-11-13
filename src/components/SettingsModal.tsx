@@ -1,17 +1,44 @@
 import React from 'react';
-import { GameEngine } from '../game/gameEngine';
+import type { GameEngine } from '../game/gameEngine';
 import { soundEngine } from '../game/audio';
 import { backgroundTracks } from '../game/backgroundTracks';
 import { WORLD_MAPS, type WorldMap } from '../game/worldMaps';
-import { Volume2, Shield, Eye, Flame, MousePointer, Bomb, Shovel } from 'lucide-react';
+import type { ControlScene } from '../controlSync';
 import { featureFlags } from '../featureFlags';
+import { Activity, ArrowUpRight, Bomb, Check, ChevronDown, CircleDot, Coins, Copy,
+  Crown, Flame, Flower2, Link2, Map, Mountain, Music2, Pause, Play, Radio,
+  RotateCcw, Settings2, Ship, Shovel, Volume2, Zap } from 'lucide-react';
+
+const SCENES = [
+  { id: 'WHIP', label: 'Kırbaç', icon: Zap },
+  { id: 'BURIAL', label: 'Gömme', icon: Shovel },
+  { id: 'HELL', label: 'Cehennem', icon: Flame },
+  { id: 'CAMEL', label: 'Deve', icon: Mountain },
+  { id: 'BOMB', label: 'Bomba', icon: Bomb },
+  { id: 'FLOWERS', label: 'Gül ve Lale', icon: Flower2 },
+  { id: 'MONEY_RAIN', label: 'Altın ve Dolar', icon: Coins },
+  { id: 'TASBIH', label: 'Tesbih', icon: CircleDot },
+  { id: 'PHARAOH', label: 'Firavun', icon: Crown },
+  { id: 'NOAH', label: "Nuh'un Gemisi", icon: Ship },
+] satisfies { id: ControlScene; label: string; icon: typeof Zap }[];
 
 interface SettingsModalProps {
   engine: GameEngine;
   onRefresh: () => void;
-  onBombSceneChange: (enabled: boolean) => void;
-  onBurialSceneChange: (enabled: boolean) => void;
-  onHellSceneChange: (enabled: boolean) => void;
+  currentScene: ControlScene;
+  onSceneChange: (scene: ControlScene) => void;
+  rapidWhip: boolean;
+  rapidWhipSpeed: number;
+  onRapidWhipChange: () => void;
+  onRapidWhipSpeedChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  gameOnline: boolean;
+  isPaused: boolean;
+  onPause: () => void;
+  onRestart: () => void;
+  viewerCount: number;
+  likeCount: number;
+  relayError: string;
+  gameUrl: string;
   tiktokUsername: string;
   tiktokStatus: string;
   tiktokMessage: string;
@@ -23,389 +50,194 @@ interface SettingsModalProps {
   publishedSiteUrl: string;
   publishedSiteError: string;
   onOpenPublishedControl: (value: string) => void;
-  currentMap?: WorldMap;
-  onSelectMap?: (map: WorldMap) => void;
+  currentMap: WorldMap;
+  onSelectMap: (map: WorldMap) => void;
+  mapBackgrounds: Record<WorldMap, string>;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({
-  engine,
-  onRefresh,
-  onBombSceneChange,
-  onBurialSceneChange,
-  onHellSceneChange,
-  tiktokUsername,
-  tiktokStatus,
-  tiktokMessage,
-  onTikTokUsernameChange,
-  obsUrl,
-  controlKey,
-  onControlKeyChange,
-  showPublishedControlLink,
-  publishedSiteUrl,
-  publishedSiteError,
-  onOpenPublishedControl,
-  currentMap = 'DESERT',
-  onSelectMap,
-}) => {
-  const [vol, setVol] = React.useState(soundEngine.getVolume());
-  const [backgroundTrack, setBackgroundTrack] = React.useState(soundEngine.getBackgroundTrack());
-  const [usernameDraft, setUsernameDraft] = React.useState(tiktokUsername);
-  const [obsCopied, setObsCopied] = React.useState(false);
-  const [publishedSiteDraft, setPublishedSiteDraft] = React.useState(publishedSiteUrl);
-  const [controlKeyDraft, setControlKeyDraft] = React.useState(controlKey);
+function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
+  return <button type="button" role="switch" aria-label={label} aria-checked={checked}
+    onClick={onChange} className={`control-toggle ${checked ? 'is-on' : ''}`}><span /></button>;
+}
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    setVol(val);
-    soundEngine.setVolume(val);
-    engine.settings.soundVolume = val;
-    onRefresh();
+export const SettingsModal: React.FC<SettingsModalProps> = (props) => {
+  const { engine, currentScene, onSceneChange, onRefresh, currentMap, onSelectMap } = props;
+  const [usernameDraft, setUsernameDraft] = React.useState(props.tiktokUsername);
+  const [publishedSiteDraft, setPublishedSiteDraft] = React.useState(props.publishedSiteUrl);
+  const [controlKeyDraft, setControlKeyDraft] = React.useState(props.controlKey);
+  const [copyStatus, setCopyStatus] = React.useState<'idle' | 'copied' | 'selected'>('idle');
+  const obsInput = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => setUsernameDraft(props.tiktokUsername), [props.tiktokUsername]);
+  React.useEffect(() => setPublishedSiteDraft(props.publishedSiteUrl), [props.publishedSiteUrl]);
+  React.useEffect(() => setControlKeyDraft(props.controlKey), [props.controlKey]);
+  React.useEffect(() => setCopyStatus('idle'), [props.obsUrl]);
+  const activeScene = SCENES.find(scene => scene.id === currentScene)!;
+  const activeMap = WORLD_MAPS.find(map => map.id === currentMap)!;
+  const liveConnected = props.tiktokStatus === 'connected';
+  const liveLabel = liveConnected ? 'Bağlı' : props.tiktokStatus === 'connecting' ? 'Bağlanıyor'
+    : props.tiktokStatus === 'offline' ? 'Çevrimdışı' : 'Bağlantı hatası';
+  const copyObsUrl = async () => {
+    try { await navigator.clipboard.writeText(props.obsUrl); setCopyStatus('copied'); }
+    catch { obsInput.current?.select(); setCopyStatus('selected'); }
   };
 
-  const toggleScreenShake = () => {
-    engine.settings.screenShake = !engine.settings.screenShake;
-    onRefresh();
-  };
+  return <section className="control-dashboard" aria-label="Yayın kontrol paneli">
+    <header className="control-topbar">
+      <div className="control-brand">
+        <span className="control-brand-icon"><Radio size={20} /></span>
+        <div><div className="control-eyebrow">HARAMİ · LIVE</div><h1>Yayın kontrolü</h1></div>
+      </div>
+      <div className="control-header-actions">
+        <span className={`control-status ${props.gameOnline ? 'is-connected' : ''}`} role="status">
+          <i />{props.gameOnline ? 'Oyun bağlı' : 'Oyun bekleniyor'}
+        </span>
+        <a className="control-button" href={props.gameUrl} target="_blank" rel="noreferrer">
+          <ArrowUpRight size={15} /> Oyun ekranı
+        </a>
+        <button type="button" className="control-button" onClick={props.onPause}>
+          {props.isPaused ? <Play size={14} /> : <Pause size={14} />}{props.isPaused ? 'Devam et' : 'Duraklat'}
+        </button>
+        <button type="button" className="control-button control-button-quiet" onClick={props.onRestart}>
+          <RotateCcw size={14} /> Yeniden başlat
+        </button>
+      </div>
+    </header>
+    {props.relayError && <div className="control-alert" role="alert">{props.relayError}</div>}
 
-  const toggleRain = () => {
-    engine.settings.rainEffect = !engine.settings.rainEffect;
-    onRefresh();
-  };
-
-  const setBloodIntensity = (val: number) => {
-    engine.settings.bloodIntensity = val;
-    onRefresh();
-  };
-
-  return (
-    <section className="settings-side-panel bg-stone-950 border-l border-stone-800 shadow-2xl flex flex-col" aria-label="Oyun ayarları">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-800 bg-stone-900/60">
-          <div className="flex items-center gap-3">
-            <Shield className="w-5 h-5 text-amber-500" />
-            <div>
-              <h2 className="font-cinzel text-lg font-bold text-stone-100 tracking-wide">
-                Atmosfer, Harita & Kontrol Ayarları
-              </h2>
-              <div className="text-xs text-stone-400">
-                Arap çölü kıyameti, fizik efektleri ve oynanış kılavuzu
-              </div>
-            </div>
+    <div className="control-grid">
+      <div className="control-column">
+        <section className="control-card" aria-labelledby="scene-heading">
+          <div className="control-card-heading"><h2 id="scene-heading"><Activity size={15} /> Sahneler</h2>
+            <span className="control-active-label">{activeScene.label}</span></div>
+          <div className="control-scene-grid" aria-label="Sahne seçimi">
+            {SCENES.map(({id, label, icon: Icon}) => <button key={id} type="button"
+              aria-label={`${label} sahnesi`} aria-pressed={currentScene === id}
+              className={`control-scene ${currentScene === id ? 'is-selected' : ''}`}
+              onClick={() => onSceneChange(id)}>
+              <Icon size={19} strokeWidth={1.7} /><span>{label}</span>
+              {currentScene === id && <Check className="control-selection-check" size={11} />}
+            </button>)}
           </div>
+          {currentScene === 'WHIP' && <div className="control-rapid-row">
+            <div className="control-inline"><label htmlFor="rapid-toggle">Seri kırbaç</label>
+              <Toggle label="Seri kırbaç modu" checked={props.rapidWhip} onChange={props.onRapidWhipChange} /></div>
+            <div className="control-speed"><label htmlFor="rapid-speed">Hız</label>
+              <input id="rapid-speed" type="range" aria-label="Seri kırbaç hızı" min="0.1" max="2" step="0.1"
+                value={props.rapidWhipSpeed} onChange={props.onRapidWhipSpeedChange} />
+              <output htmlFor="rapid-speed">{props.rapidWhipSpeed.toFixed(1)}×</output></div>
+          </div>}
+          {currentScene === 'NOAH' && <div className="control-progress" aria-label="Gemi yapım ilerlemesi">
+            <span>Gemi yapımı</span><progress max="100" value={engine.noahBuildProgress * 100} />
+            <output>{Math.round(engine.noahBuildProgress * 100)}%</output>
+          </div>}
+        </section>
 
-        </div>
-
-        {/* Content body */}
-        <div className="p-6 overflow-y-auto space-y-6">
-          <div className="space-y-2 rounded-lg border border-sky-700/50 bg-sky-950/20 p-3">
-            <label htmlFor="control-key" className="block text-xs font-semibold text-sky-200">
-              Vercel kontrol anahtarı
-            </label>
-            <p className="text-[11px] text-stone-400">
-              Vercel Environment Variables içindeki CONTROL_SECRET değerini girin. Sahne değişiklikleri bu anahtarla oyuna gönderilir.
-            </p>
-            <input id="control-key" type="password" value={controlKeyDraft}
-              onChange={event => setControlKeyDraft(event.target.value)} autoComplete="off"
-              className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-xs text-stone-200" />
-            <button type="button" onClick={() => onControlKeyChange(controlKeyDraft)}
-              className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white">
-              Anahtarı uygula
-            </button>
+        <section className="control-card" aria-labelledby="map-heading">
+          <div className="control-card-heading"><h2 id="map-heading"><Map size={15} /> Savaş alanı</h2>
+            <span className="control-muted">{activeMap.label}</span></div>
+          <div className="control-map-grid" aria-label="Savaş Alanı / Harita Seçimi">
+            {WORLD_MAPS.map(map => <button type="button" key={map.id} onClick={() => onSelectMap(map.id)}
+              aria-pressed={currentMap === map.id}
+              className={`control-map ${currentMap === map.id ? 'is-selected' : ''}`}
+              style={{backgroundImage:`linear-gradient(0deg, rgba(0,0,0,.82), rgba(0,0,0,.08)), url("${props.mapBackgrounds[map.id]}")`}}>
+              <span>{map.label}</span>{currentMap === map.id && <Check size={13} />}
+            </button>)}
           </div>
-          {showPublishedControlLink && (
-            <div className="space-y-2 rounded-lg border border-emerald-700/50 bg-emerald-950/20 p-3">
-              <label htmlFor="published-site-url" className="block text-xs font-semibold text-emerald-200">
-                Vercel yayın adresi
-              </label>
-              <p className="text-[11px] text-stone-400">
-                Vercel oyununu yönetmek için yayın adresini veya /control?key=... bağlantısını girin.
-              </p>
-              <input id="published-site-url" type="url" value={publishedSiteDraft}
-                onChange={event => setPublishedSiteDraft(event.target.value)}
-                placeholder="https://projeniz.vercel.app" autoComplete="url" spellCheck={false}
-                className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-xs text-stone-200" />
-              {publishedSiteError && <p className="text-xs text-red-300" role="alert">{publishedSiteError}</p>}
-              <button type="button" onClick={() => onOpenPublishedControl(publishedSiteDraft)}
-                className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white">
-                Vercel kontrolünü aç
-              </button>
-            </div>
-          )}
-          <div className="space-y-2 rounded-lg border border-amber-700/50 bg-amber-950/20 p-3">
-            <div className="text-xs font-semibold text-amber-200">OBS / TikTok LIVE Studio oyun bağlantısı</div>
-            <p className="text-[11px] text-stone-400">Bu bağlantı yalnızca oyunu gösterir; kontrol paneli yayına girmez.</p>
-            <p className="text-[11px] leading-relaxed text-amber-100">
-              LIVE Studio: Kaynak ekle → Link/Bağlantı → bu adresi yapıştır → Özel çözünürlük: <strong>1080 genişlik × 1920 yükseklik</strong> → Kaynağı ekle → Ekrana sığdır. Eski yatay kaynağı kaldırın; “Uzat” görüntüyü bozar.
-            </p>
-            {/^http:\/\/(?:\d{1,3}\.){3}\d{1,3}/.test(obsUrl) && (
-              <p className="text-[11px] text-stone-400">
-                Bu adres localhost yerine bilgisayarın yerel ağ IP’sini kullanır. LIVE Studio yerel HTTP adresini de reddederse yayınlanan HTTPS oyun adresini kullanın.
-              </p>
-            )}
-            <input type="text" readOnly value={obsUrl} aria-label="OBS oyun bağlantısı"
-              onFocus={event => event.currentTarget.select()}
-              className="w-full rounded-md border border-stone-700 bg-stone-900 px-2 py-1.5 text-[11px] text-stone-200" />
-            <button type="button" onClick={async () => {
-              try { await navigator.clipboard.writeText(obsUrl); setObsCopied(true); }
-              catch { setObsCopied(false); }
-            }} className="rounded-md bg-amber-700 px-3 py-1.5 text-xs font-semibold text-stone-950">
-              {obsCopied ? 'Kopyalandı' : 'Bağlantıyı kopyala'}
-            </button>
+        </section>
+
+        <details className="control-card control-details">
+          <summary><span><Settings2 size={15} /> Görsel ayarlar</span><ChevronDown size={15} /></summary>
+          <div className="control-details-body">
+            <div className="control-setting-row"><span>Ekran sarsıntısı</span>
+              <Toggle label="Ekran sarsıntısı" checked={engine.settings.screenShake}
+                onChange={() => {engine.settings.screenShake = !engine.settings.screenShake; onRefresh();}} /></div>
+            <div className="control-setting-row"><label htmlFor="shake-strength">Sarsıntı şiddeti</label>
+              <div className="control-range-field"><input id="shake-strength" type="range" min="0" max="100" step="5"
+                disabled={!engine.settings.screenShake} value={Math.round(engine.settings.screenShakeStrength * 100)}
+                onChange={event => {engine.settings.screenShakeStrength = Number(event.target.value) / 100; onRefresh();}} />
+                <output htmlFor="shake-strength">{Math.round(engine.settings.screenShakeStrength * 100)}%</output></div></div>
+            <div className="control-setting-row"><span>Yağmur ve rüzgâr</span>
+              <Toggle label="Yağmur ve rüzgâr" checked={engine.settings.rainEffect}
+                onChange={() => {engine.settings.rainEffect = !engine.settings.rainEffect; onRefresh();}} /></div>
+            <div className="control-setting-row"><label htmlFor="blood-intensity">Kan efektleri</label>
+              <select id="blood-intensity" value={engine.settings.bloodIntensity}
+                onChange={event => {engine.settings.bloodIntensity = Number(event.target.value); onRefresh();}}>
+                <option value="0">Kapalı</option><option value="1">Normal</option><option value="2">Yoğun</option>
+              </select></div>
           </div>
-          {featureFlags.tiktokEnabled && (
-            <div className="space-y-2 rounded-lg border border-pink-700/50 bg-pink-950/20 p-3">
-              <label htmlFor="tiktok-username" className="block text-xs font-semibold text-pink-200">
-                TikTok LIVE yayıncı kullanıcı adı
-              </label>
-              <div className="flex gap-2">
-              <input id="tiktok-username" type="text" value={usernameDraft}
-                onChange={event => setUsernameDraft(event.target.value)}
-                placeholder="@kullaniciadi" autoComplete="off" spellCheck={false}
-                className="min-w-0 flex-1 rounded-md border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-white outline-none focus:border-pink-500" />
-              <button type="button" onClick={() => onTikTokUsernameChange(usernameDraft)}
-                className="rounded-md bg-pink-700 px-3 py-2 text-xs font-semibold text-white hover:bg-pink-600">
-                Bağlan
-              </button>
-              </div>
-              <p className="text-[11px] text-stone-400">Canlı yayına katılan her izleyici adıyla bir zombi olur. Yayıncıyı değiştirince zombi listesi yenilenir.</p>
-              <p role="status" className={`text-[11px] ${tiktokStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}`}>
-                Durum: {tiktokStatus === 'connected' ? 'Bağlandı' : tiktokStatus === 'connecting' ? 'Bağlanıyor' : tiktokStatus === 'offline' ? 'Yayın çevrimdışı' : 'Bağlantı hatası'}
-                {tiktokMessage ? ` · ${tiktokMessage}` : ''}
-              </p>
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-orange-700/50 bg-orange-950/30 p-3">
-            <div className="flex items-start gap-2">
-              <Bomb className="mt-0.5 h-4 w-4 shrink-0 text-orange-400" />
-              <div>
-                <div className="text-xs font-semibold text-orange-200">İkinci Sahne: Bomba</div>
-                <div className="text-[11px] text-stone-400">Kahraman bombayı bırakıp kaçar; 3 saniye sonra zombiler savrulur.</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-label="Bomba sahnesi"
-              aria-checked={engine.bombSceneEnabled}
-              onClick={() => onBombSceneChange(!engine.bombSceneEnabled)}
-              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${engine.bombSceneEnabled
-                ? 'border-orange-500 bg-orange-600 text-white'
-                : 'border-stone-700 bg-stone-900 text-stone-300'}`}
-            >
-              {engine.bombSceneEnabled ? 'Açık' : 'Kapalı'}
-            </button>
+        </details>
+      </div>
+
+      <div className="control-column">
+        <section className="control-card" aria-labelledby="connection-heading">
+          <div className="control-card-heading"><h2 id="connection-heading"><Radio size={15} /> Yayın bağlantısı</h2>
+            {featureFlags.tiktokEnabled && <span className={`control-status control-status-small ${liveConnected ? 'is-connected' : ''}`}>
+              <i />{liveLabel}</span>}
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-emerald-700/50 bg-emerald-950/30 p-3">
-            <div className="flex items-start gap-2">
-              <Shovel className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-              <div>
-                <div className="text-xs font-semibold text-emerald-200">Üçüncü Sahne: Gömme</div>
-                <div className="text-[11px] text-stone-400">Kahraman zombileri sırayla ipiyle yakalar, çeker ve kürekle gömer.</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-label="Gömme sahnesi"
-              aria-checked={engine.burialSceneEnabled}
-              onClick={() => onBurialSceneChange(!engine.burialSceneEnabled)}
-              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${engine.burialSceneEnabled
-                ? 'border-emerald-500 bg-emerald-700 text-white'
-                : 'border-stone-700 bg-stone-900 text-stone-300'}`}
-            >
-              {engine.burialSceneEnabled ? 'Açık' : 'Kapalı'}
-            </button>
+          {featureFlags.tiktokEnabled && <>
+            <form className="control-form-row" onSubmit={event => {event.preventDefault(); props.onTikTokUsernameChange(usernameDraft);}}>
+              <label className="control-field" htmlFor="tiktok-username"><span>TikTok kullanıcı adı</span>
+                <input id="tiktok-username" value={usernameDraft} onChange={event => setUsernameDraft(event.target.value)}
+                  placeholder="@kullaniciadi" autoComplete="off" spellCheck={false} /></label>
+              <button type="submit" className="control-button control-button-primary">Bağlan</button>
+            </form>
+            <div className="control-audience"><span><strong>{props.viewerCount.toLocaleString('tr-TR')}</strong> izleyici</span>
+              <span><strong>{props.likeCount.toLocaleString('tr-TR')}</strong> beğeni</span></div>
+            {props.tiktokMessage && <p className={`control-note ${liveConnected ? '' : 'control-warning'}`} role="status">{props.tiktokMessage}</p>}
+          </>}
+          <div className={`control-obs ${featureFlags.tiktokEnabled ? '' : 'control-obs-first'}`}>
+            <div className="control-card-heading"><label htmlFor="obs-url"><Link2 size={13} /> OBS / LIVE Studio</label>
+              <span className="control-muted">1080 × 1920</span></div>
+            <div className="control-copy-row"><input ref={obsInput} id="obs-url" readOnly value={props.obsUrl}
+              onFocus={event => event.currentTarget.select()} aria-label="OBS oyun bağlantısı" />
+              <button type="button" className="control-button" onClick={() => {void copyObsUrl();}} aria-label="OBS bağlantısını kopyala">
+                {copyStatus === 'copied' ? <Check size={14} /> : <Copy size={14} />}
+                {copyStatus === 'copied' ? 'Kopyalandı' : 'Kopyala'}
+              </button></div>
+            {copyStatus === 'selected' && <p className="control-note" role="status">Bağlantı seçildi. Ctrl+C veya ⌘C ile kopyalayın.</p>}
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-red-700/50 bg-red-950/30 p-3">
-            <div className="flex items-start gap-2">
-              <Flame className="mt-0.5 h-4 w-4 shrink-0 text-red-400" />
-              <div>
-                <div className="text-xs font-semibold text-red-200">Dördüncü Sahne: Cehennem</div>
-                <div className="text-[11px] text-stone-400">Kahraman zombiyi yakalayıp yanan kuyuya atar.</div>
-              </div>
-            </div>
-            <button type="button" role="switch" aria-label="Cehennem sahnesi"
-              aria-checked={engine.hellSceneEnabled}
-              onClick={() => onHellSceneChange(!engine.hellSceneEnabled)}
-              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold cursor-pointer ${engine.hellSceneEnabled
-                ? 'border-red-500 bg-red-700 text-white' : 'border-stone-700 bg-stone-900 text-stone-300'}`}>
-              {engine.hellSceneEnabled ? 'Açık' : 'Kapalı'}
-            </button>
+        </section>
+
+        <section className="control-card" aria-labelledby="audio-heading">
+          <div className="control-card-heading"><h2 id="audio-heading"><Music2 size={15} /> Ses ve müzik</h2></div>
+          <label className="control-field" htmlFor="background-track"><span>Arka plan müziği</span>
+            <select id="background-track" value={soundEngine.getBackgroundTrack()} onChange={event => {
+              if (soundEngine.setBackgroundTrack(event.target.value)) onRefresh();
+            }}>{backgroundTracks.map(track => <option key={track.id} value={track.id}>{track.number}. {track.file}</option>)}</select>
+          </label>
+          <div className="control-volume"><label htmlFor="sound-volume"><Volume2 size={14} /> Ses seviyesi</label>
+            <output htmlFor="sound-volume">{Math.round(engine.settings.soundVolume * 100)}%</output>
+            <input id="sound-volume" type="range" min="0" max="1" step="0.05" value={engine.settings.soundVolume}
+              onChange={event => {const volume = Number(event.target.value); soundEngine.setVolume(volume);
+                engine.settings.soundVolume = volume; onRefresh();}} /></div>
+        </section>
+
+        <details className="control-card control-details">
+          <summary><span><Link2 size={15} /> Bağlantı kurulumu</span><ChevronDown size={15} /></summary>
+          <div className="control-details-body">
+            <p className="control-note">OBS veya LIVE Studio'da bağlantıyı kaynak olarak ekleyin. Boyut: 1080 × 1920.</p>
+            <form onSubmit={event => {event.preventDefault(); props.onControlKeyChange(controlKeyDraft);}}>
+              <label className="control-field" htmlFor="control-key"><span>Kontrol anahtarı</span>
+                <input id="control-key" type="password" value={controlKeyDraft} autoComplete="off"
+                  onChange={event => setControlKeyDraft(event.target.value)} /></label>
+              <button type="submit" className="control-button control-apply">Anahtarı uygula</button>
+            </form>
+            {props.showPublishedControlLink && <form onSubmit={event => {event.preventDefault(); props.onOpenPublishedControl(publishedSiteDraft);}}>
+              <label className="control-field" htmlFor="published-site-url"><span>Vercel yayın adresi</span>
+                <input id="published-site-url" type="url" value={publishedSiteDraft} placeholder="https://projeniz.vercel.app"
+                  onChange={event => setPublishedSiteDraft(event.target.value)} autoComplete="url" spellCheck={false} /></label>
+              {props.publishedSiteError && <p className="control-note control-warning" role="alert">{props.publishedSiteError}</p>}
+              <button type="submit" className="control-button control-apply">Vercel kontrolünü aç <ArrowUpRight size={13} /></button>
+            </form>}
           </div>
-          {/* Map Selector */}
-          {onSelectMap && (
-            <div className="space-y-2">
-              <label className="text-xs font-cinzel font-semibold uppercase tracking-wider text-amber-500">
-                Savaş Alanı / Harita Seçimi
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {WORLD_MAPS.map(map => (
-                  <button key={map.id} onClick={() => onSelectMap(map.id)}
-                    aria-pressed={currentMap === map.id}
-                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${currentMap === map.id
-                      ? 'bg-amber-950/60 border-amber-500 text-amber-300 shadow-md'
-                      : 'bg-stone-900 border-stone-800 text-stone-400 hover:border-stone-700'}`}>
-                    {map.icon} {map.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Audio */}
-          <div className="space-y-3">
-            <div className="space-y-2 rounded-lg border border-amber-700/40 bg-amber-950/20 p-3">
-              <label htmlFor="background-track" className="block text-xs font-semibold text-amber-200">
-                Arka plan müziği
-              </label>
-              <select id="background-track" value={backgroundTrack}
-                onChange={event => {
-                  if (soundEngine.setBackgroundTrack(event.target.value)) {
-                    setBackgroundTrack(event.target.value);
-                    onRefresh();
-                  }
-                }}
-                className="w-full rounded-md border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-stone-100">
-                {[1, 2, 3, 4, 5, 6].map(number => {
-                  const id = number === 1 ? 'background' : `background_${number}`;
-                  const track = backgroundTracks.find(item => item.id === id);
-                  return <option key={id} value={id} disabled={!track}>
-                    {track ? `${number}. ${track.file}` : `${number}. Dosya henüz eklenmedi`}
-                  </option>;
-                })}
-              </select>
-              <p className="text-[11px] text-stone-400">
-                Seçim oyuna hemen uygulanır ve yayın ekranına gönderilir.
-              </p>
-            </div>
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-cinzel font-semibold uppercase tracking-wider text-stone-300 flex items-center gap-2">
-                <Volume2 className="w-4 h-4 text-amber-500" />
-                <span>Ses Efektleri (Web Audio Synthesizer)</span>
-              </label>
-              <span className="text-xs font-mono text-stone-400 tabular-nums">
-                {Math.round(vol * 100)}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={vol}
-              onChange={handleVolumeChange}
-              className="w-full accent-amber-500 bg-stone-800 cursor-pointer"
-            />
-          </div>
-
-          {/* Graphics & Atmosphere */}
-          <div className="space-y-4 pt-4 border-t border-stone-800/80">
-            <h3 className="font-cinzel text-xs font-semibold uppercase tracking-wider text-amber-500">
-              Görsel & Atmosfer Efektleri
-            </h3>
-
-            {/* Blood Gore Level */}
-            <div className="space-y-1.5">
-              <div className="text-xs text-stone-300 font-medium">Kan & Uzuv Parçalanma Yoğunluğu</div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { val: 0, label: 'Yok' },
-                  { val: 1, label: 'Normal' },
-                  { val: 2, label: 'Vahşi (Maks)' },
-                ].map((item) => (
-                  <button
-                    key={item.val}
-                    onClick={() => setBloodIntensity(item.val)}
-                    className={`py-2 px-3 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                      engine.settings.bloodIntensity === item.val
-                        ? 'bg-rose-950/60 border-rose-600 text-rose-200'
-                        : 'bg-stone-900 border-stone-800 text-stone-400 hover:bg-stone-800'
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Screen Shake */}
-            <div className="flex items-center justify-between p-3 bg-stone-900/40 border border-stone-800 rounded-lg">
-              <div>
-                <div className="text-xs font-semibold text-stone-200">Kinetik Ekran Sarsıntısı</div>
-                <div className="text-[11px] text-stone-400">Şaklatma ve patlamalarda kamera titreşimi</div>
-              </div>
-              <button
-                onClick={toggleScreenShake}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                  engine.settings.screenShake
-                    ? 'bg-amber-600 text-stone-950 border-amber-500'
-                    : 'bg-stone-900 text-stone-400 border-stone-800'
-                }`}
-              >
-                {engine.settings.screenShake ? 'Açık' : 'Kapalı'}
-              </button>
-            </div>
-            <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-3">
-              <div className="mb-2 flex justify-between text-xs text-stone-200">
-                <label htmlFor="shake-strength">Sarsıntı Şiddeti</label>
-                <output>{Math.round(engine.settings.screenShakeStrength * 100)}%</output>
-              </div>
-              <input id="shake-strength" type="range" min="0" max="100" step="5"
-                value={Math.round(engine.settings.screenShakeStrength * 100)}
-                onChange={event => {
-                  engine.settings.screenShakeStrength = Number(event.target.value) / 100;
-                  onRefresh();
-                }}
-                className="w-full cursor-pointer accent-amber-500" />
-            </div>
-
-            {/* Rain */}
-            <div className="flex items-center justify-between p-3 bg-stone-900/40 border border-stone-800 rounded-lg">
-              <div>
-                <div className="text-xs font-semibold text-stone-200">Gotik Fırtına & Çöl Rüzgarı</div>
-                <div className="text-[11px] text-stone-400">Eğimli yağmur ve toz parçacıkları</div>
-              </div>
-              <button
-                onClick={toggleRain}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
-                  engine.settings.rainEffect
-                    ? 'bg-sky-600 text-stone-950 border-sky-500'
-                    : 'bg-stone-900 text-stone-400 border-stone-800'
-                }`}
-              >
-                {engine.settings.rainEffect ? 'Açık' : 'Kapalı'}
-              </button>
-            </div>
-          </div>
-
-          {/* Gameplay Mechanics Guide */}
-          <div className="space-y-3 pt-4 border-t border-stone-800/80">
-            <h3 className="font-cinzel text-xs font-semibold uppercase tracking-wider text-amber-500 flex items-center gap-2">
-              <MousePointer className="w-4 h-4" />
-              <span>Arap Zombi Ordusu & Kırbaç Taktikleri</span>
-            </h3>
-
-            <div className="text-xs text-stone-300 space-y-2 leading-relaxed bg-stone-900/50 p-3.5 rounded-lg border border-stone-800">
-              <p>
-                <strong className="text-amber-400">⚡ Süpersonik Kırbaç Şaklatması:</strong> Fareyi hızla salladığınızda ip boyunca hızlanan kinetik dalga ses hızını aşar ve süpersonik <strong>ÇAT!</strong> sesiyle patlayıcı kritik hasar verir.
-              </p>
-              <p>
-                <strong className="text-rose-400">💀 Arap Zombi Tipleri & Taktikler:</strong>
-              </p>
-              <ul className="list-disc pl-4 space-y-1 text-stone-400">
-                <li><strong>Bedevi Shambler:</strong> Kırmızı-beyaz Keffiyeh puşi, siyah agel ve yırtık çöl cübbesi giyer. Kafasına vurduğunuzda puşisiyle birlikte kafası uçar!</li>
-                <li><strong>Zırhlı Sarazen Memlük:</strong> Sivri uçlu çelik/pirinç Külah-ı Hud miğferi ve zırhı vardır; Dikenli Zincir Kırbaç zırhını söker.</li>
-                <li><strong>Kum Sürüneni:</strong> Mumya bezlerine sarılıdır, kuma yapışık sürünür; alçaktan savurarak vurun.</li>
-                <li><strong>Çöl Veba Cadısı:</strong> Siyah abaye ve altın liralar takar, yeşil lanetli asit püskürtür.</li>
-                <li><strong>Lanetli Sultan (Boss):</strong> Mor kadife kaftanı, mücevherli sarığı ve göğsüne saplanmış eğri kılıcıyla devasa liderdir.</li>
-              </ul>
-              <p>
-                <strong className="text-sky-400">🎮 Kısayollar:</strong> Sol Tık / Fare Hızlı Savurma · [Boşluk] İleri Şaklatma · [Q] Kasırga Vuruşu · [E] Şok Patlaması.
-              </p>
-            </div>
-          </div>
-        </div>
-
-    </section>
-  );
+        </details>
+        <details className="control-card control-details">
+          <summary><span><Zap size={15} /> Sohbet komutları</span><ChevronDown size={15} /></summary>
+          <div className="control-details-body"><div className="control-command-grid">
+            {['kirbacla', 'gom', 'cehennem', 'deveyebin'].map(command => <code key={command}>{command} nickname</code>)}
+          </div><p className="control-note">İsim yazılmazsa mesajı gönderen seçilir. Türkçe karakter şart değil.</p></div>
+        </details>
+      </div>
+    </div>
+  </section>;
 };

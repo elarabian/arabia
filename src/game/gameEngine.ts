@@ -510,6 +510,7 @@ export class GameEngine {
     this.handsRaised = 0;
     this.bodyLean = 0;
     if (!mode) return;
+    this.heroLine = null;
     this.cancelLiveTasks();
     this.setNoahScene(false);
     this.setPharaohScene(false);
@@ -2191,7 +2192,7 @@ export class GameEngine {
     }
 
     // 5. Draw Whip
-    this.celebrationScene.drawForeground(ctx, this.arm.wrist);
+    if (!this.flowerSceneEnabled) this.celebrationScene.drawForeground(ctx, this.arm.wrist);
     if (this.captureSceneEnabled) this.burialScene.drawForeground(ctx, this.arm.wrist.x, this.arm.wrist.y);
     else if (this.bombSceneEnabled) this.drawBombBlast(ctx);
     else if (!this.celebrationScene.mode && !this.tasbihMode && !(this.noahSceneEnabled && this.noahFloodTime > 0 && this.noahFloodTime <= 3.2)
@@ -2204,6 +2205,8 @@ export class GameEngine {
 
     this.drawBurialDialogue(ctx);
     this.drawLiveChat(ctx);
+    // A chat bubble must not hide the flower travelling out of the hero's hand.
+    if (this.flowerSceneEnabled) this.celebrationScene.drawForeground(ctx, this.arm.wrist);
 
     // 6. Draw Foreground effects (particles, fog, shockwaves, lighting, rain)
     this.atmosphere.drawForegroundEffects(

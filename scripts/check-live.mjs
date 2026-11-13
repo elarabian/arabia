@@ -339,6 +339,48 @@ try {
   assert.equal(namedWhipGame.nextWhipTarget()?.viewerId, 'named',
     'the normal whip scene targets the latest commenter');
 
+  for (const width of [540, 300]) {
+    const throwGame = new GameEngine();throwGame.restartGame();throwGame.resize(width, 960);
+    throwGame.addLiveViewer('rose-target', 'Ela');throwGame.addLiveViewer('tulip-target', 'Ali');
+    throwGame.update(2);throwGame.setFlowerScene(true);throwGame.update(.1);
+    const aimedViewer = throwGame.celebrationScene.target;
+    assert.ok(aimedViewer, 'the hero selects a target during wind-up, before releasing the flower');
+    assert.equal(throwGame.celebrationScene.flowerInHand, true);
+    assert.equal(throwGame.celebrationScene.flowers.length, 0, 'the flower stays in hand during wind-up');
+    for (let frame = 0; frame < 60 && !throwGame.celebrationScene.flowers.length; frame++) throwGame.update(1/60);
+    const flower = throwGame.celebrationScene.flowers[0];
+    assert.ok(flower, 'the flower leaves the hand when the throwing arm extends');
+    assert.equal(flower.target, aimedViewer, 'the launched flower goes to the viewer the hero aimed at');
+    assert.equal(throwGame.celebrationScene.flowerInHand, false, 'the throwing hand is empty after release');
+    const start = {x:flower.x, y:flower.y};
+    for (let frame = 0; frame < 12; frame++) throwGame.update(1/60);
+    assert.ok(Math.hypot(flower.x-start.x,flower.y-start.y) > 10,
+      'the flower visibly travels away from the hand');
+    const translations = [];
+    const canvas = new Proxy({}, {get:(_,key)=>key==='translate'
+      ? (x,y)=>translations.push({x,y}) : ()=>{}});
+    throwGame.celebrationScene.drawForeground(canvas, throwGame.arm.wrist);
+    assert.ok(translations.some(p=>p.x===flower.x && p.y===flower.y),
+      'the renderer draws the moving flower at its flight position');
+    assert.ok(!translations.some(p=>p.x===throwGame.arm.wrist.x && p.y===throwGame.arm.wrist.y-7),
+      'the renderer removes the held flower during its flight');
+    for (let frame = 0; frame < 90 && throwGame.celebrationScene.flowers.includes(flower); frame++) {
+      assert.ok(Number.isFinite(flower.x) && Number.isFinite(flower.y));
+      assert.ok(flower.y >= throwGame.height*.24+30, 'the flower stays inside the visible broadcast action area');
+      throwGame.update(1/60);
+    }
+    assert.equal(throwGame.celebrationScene.flowers.includes(flower), false, 'the flight completes');
+    assert.ok(throwGame.celebrationScene.blooms.length > 0, 'the flying flower reaches its recipient');
+    assert.ok(throwGame.celebrationScene.petals.length > 0, 'landing releases visible petals');
+    const drawOrder = [];
+    throwGame.drawLiveChat = () => drawOrder.push('chat');
+    throwGame.celebrationScene.drawForeground = () => drawOrder.push('flowers');
+    const renderCanvas = new Proxy({}, {get:(_,key) => /^create.*Gradient$/.test(String(key))
+      ? () => ({addColorStop(){}}) : key==='measureText' ? () => ({width:30}) : ()=>{}});
+    throwGame.render(renderCanvas, 0);
+    assert.deepEqual(drawOrder, ['chat','flowers'], 'chat bubbles cannot cover the flying flowers');
+  }
+
   const flowerGame = new GameEngine();flowerGame.restartGame();
   flowerGame.addLiveViewer('flower-a', 'Ela');flowerGame.addLiveViewer('flower-b', 'Ali');
   flowerGame.setFlowerScene(true);
